@@ -72,7 +72,8 @@ Let's make this code better together! 🤝
 [![](https://cdn.rawgit.com/jbenet/contribute-ipfs-gif/master/img/contribute.gif)](https://github.com/ipfs/community/blob/master/contributing.md)
 
 ## Credits
-
+This repo is just a gnarly fork of the beautiful http2 code by the swift nio team below...
+- [Swift NIO HTTP/2](https://github.com/apple/swift-nio-http2.git)
 - [MPLEX Spec](https://github.com/libp2p/specs/blob/master/mplex/README.md) 
 
 ## License
