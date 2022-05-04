@@ -16,8 +16,8 @@ public struct MPLEX: MuxerUpgrader {
     public func upgradeConnection(_ conn: Connection, muxedPromise: EventLoopPromise<Muxer>) -> EventLoopFuture<Void> {
         return conn.channel.pipeline.addHandlers(
             [
-                MPLEXFrameDecoder(logger: conn.logger),
-                MPLEXFrameEncoder(logger: conn.logger),
+                ByteToMessageHandler(MPLEXFrameDecoder()),
+                MessageToByteHandler(MPLEXFrameEncoder()),
                 MPLEXStreamMultiplexer(connection: conn, muxedPromise: muxedPromise, supportedProtocols: [])
             ],
             position: .last
