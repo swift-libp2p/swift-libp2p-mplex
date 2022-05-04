@@ -122,14 +122,14 @@ private enum StreamChannelState {
     }
 }
 
-public struct MPLEXFrame {
+public struct MPLEXFrame:Equatable {
     /// The streams ID
     var streamID:MPLEXStreamID
     
     /// The payload of this frame
     var payload:FramePayload
     
-    enum FramePayload {
+    enum FramePayload:Equatable {
         case inboundData(ByteBuffer)
         case outboundData(ByteBuffer)
         case close
