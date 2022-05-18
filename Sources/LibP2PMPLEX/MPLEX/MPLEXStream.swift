@@ -9,9 +9,9 @@ import LibP2P
 
 /// A BasicStream manages a specific protocol Stream over a Connection. Non Muxed Stream. Only one BasicStream per Connection.
 public class MPLEXStream:_Stream {
-    //public private(set) var streamState:LibP2P.StreamState
-    public var _streamState: LibP2P.StreamState
-    public var streamState: LibP2P.StreamState {
+    //public private(set) var streamState:LibP2PCore.StreamState
+    public var _streamState: LibP2PCore.StreamState
+    public var streamState: LibP2PCore.StreamState {
         _streamState
     }
     
@@ -36,7 +36,7 @@ public class MPLEXStream:_Stream {
 //        channel.eventLoop
 //    }()
     
-    public required init(channel: Channel, mode: LibP2P.Mode, id: UInt64, name: String?, proto: String, streamState: LibP2P.StreamState = .initialized) {
+    public required init(channel: Channel, mode: LibP2P.Mode, id: UInt64, name: String?, proto: String, streamState: LibP2PCore.StreamState = .initialized) {
         self.channel = channel
         self.mode = mode
         self.id = id
@@ -55,7 +55,7 @@ public class MPLEXStream:_Stream {
     //}
 
     /// Main Delegate/Callback Function
-    public var on: ((LibP2P.StreamEvent) -> EventLoopFuture<Void>)?
+    public var on: ((LibP2PCore.StreamEvent) -> EventLoopFuture<Void>)?
 
     public func write(_ data: Data) -> EventLoopFuture<Void> {
         self.write(channel.allocator.buffer(bytes: data.bytes))

@@ -77,7 +77,7 @@ public final class MPLEXStreamMultiplexer: ChannelInboundHandler, ChannelOutboun
     
     /// Muxer Callbacks and Delegates
     public var onStream: ((_Stream) -> Void)? = nil
-    public var onStreamEnd: ((LibP2P.Stream) -> Void)? = nil
+    public var onStreamEnd: ((LibP2PCore.Stream) -> Void)? = nil
     public var _connection: Connection?
 
     let localPeerID:PeerID
@@ -222,7 +222,7 @@ public final class MPLEXStreamMultiplexer: ChannelInboundHandler, ChannelOutboun
         }
     }
 
-    public func updateStream(channel:Channel, state:LibP2P.StreamState, proto:String) -> EventLoopFuture<Void> {
+    public func updateStream(channel:Channel, state:LibP2PCore.StreamState, proto:String) -> EventLoopFuture<Void> {
         self.channel.eventLoop.submit {
             if let idx = self.streamMap.first(where: { $1.channel === channel }) {
 //                let newStream = MPLEXStream(
@@ -508,7 +508,7 @@ extension MPLEXStreamMultiplexer: Muxer {
         return self
     }
     
-    public var streams: [LibP2P.Stream] {
+    public var streams: [LibP2PCore.Stream] {
         self.streamMap.map { $0.value }
     }
     
@@ -556,11 +556,11 @@ extension MPLEXStreamMultiplexer: Muxer {
         return streamPromise.futureResult
     }
     
-    public func openStream(_ stream: inout LibP2P.Stream) throws -> EventLoopFuture<Void> {
+    public func openStream(_ stream: inout LibP2PCore.Stream) throws -> EventLoopFuture<Void> {
         throw NSError(domain: "Not Yet Implemented", code: 0, userInfo: nil)
     }
     
-    public func getStream(id: UInt64, mode: LibP2P.Mode) -> EventLoopFuture<LibP2P.Stream?> {
+    public func getStream(id: UInt64, mode: LibP2P.Mode) -> EventLoopFuture<LibP2PCore.Stream?> {
         self.channel.eventLoop.submit {
             let streamID = MPLEXStreamID(id: id, mode: mode)
             return self.streamMap[streamID]
