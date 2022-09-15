@@ -76,7 +76,7 @@ public class MPLEXStream:_Stream {
         }
         guard self.streamState == .open else { return self.channel.eventLoop.makeFailedFuture(Errors.streamNotWritable) }
         // Write it out
-        self.channel.writeAndFlush(NIOAny(Response(payload: buffer)), promise: nil)
+        self.channel.writeAndFlush(NIOAny(RawResponse(payload: buffer)), promise: nil)
         //self.channel.writeAndFlush(NIOAny(MPLEXFrame(streamID: streamID, payload: .outboundData(buffer))), promise: nil)
         return self.channel.eventLoop.makeSucceededVoidFuture()
         //return promise.futureResult
