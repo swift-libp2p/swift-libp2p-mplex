@@ -982,7 +982,7 @@ internal extension MPLEXStreamChannel {
             self.errorEncountered(error: err)
         } else {
             //print("MPLEXFrame[\(self.streamID!.id)]::RecieveStreamClosed while in state \(self.state)")
-            if self.state == .closed || self.state == .closing {
+            if self.state == .closed || self.state == .closing || self.state == .idle {
                 //print("MPLEXFrame[\(self.streamID!.id)]::Closing cleanly")
                 self.closedCleanly()
             } else {
