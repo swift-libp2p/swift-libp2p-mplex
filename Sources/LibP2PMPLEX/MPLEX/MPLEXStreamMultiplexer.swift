@@ -481,7 +481,8 @@ extension MPLEXStreamMultiplexer {
         case .initialized, .open, .receiveClosed:
             str._streamState = .writeClosed
         case .writeClosed, .closed, .reset:
-            preconditionFailure("Invalid StreamState Transition \(str._streamState) -> .writeClosed")
+            print("MPLEXStreamMultiplexer::ERROR:Invalid child channel stream state transition \(str._streamState) -> .writeClosed")
+            return
         }
     }
 
