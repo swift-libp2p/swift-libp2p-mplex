@@ -702,6 +702,7 @@ final class MPLEXStreamChannel: Channel, ChannelCore {
         let closeFrame = MPLEXFrame(streamID: self.streamID!, payload: .close)
         self.receiveOutboundFrame(closeFrame, promise: nil)
         self.multiplexer.childChannelFlush()
+        self.multiplexer.childChannelWriteClosed(self.streamID!)
     }
 
     private func closedCleanly() {
