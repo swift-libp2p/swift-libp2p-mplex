@@ -85,27 +85,16 @@ public class MPLEXStream:_Stream {
     /// Sends a close stream message to our remote peer, requesting this Stream be closed.
     /// - Note: Because there can be multiple MPLEXStreams over a single Connection, this will NOT close the underlying Connection.
     public func close(gracefully: Bool) -> EventLoopFuture<Void> {
-        if gracefully && self.channel.isActive && self.channel.isWritable {
-//            let promise = self.channel.eventLoop.makePromise(of: Void.self)
-            print("Stream[\(streamID.id)] -> Writing Close Message")
-            self.channel.writeAndFlush(NIOAny(MPLEXFrame(streamID: streamID, payload: .close)), promise: nil)
+        switch self._streamState {
+        case .initialized, .open:
             self._streamState = .writeClosed
-            return self.channel.eventLoop.makeSucceededVoidFuture()
-//            return self.channel.closeFuture
-//            return promise.futureResult.always { _ in
-//                print("Stream[\(self.streamID.id)] -> Closing")
-//                self.channel.close(mode: .all, promise: nil)
-//            }
-            //self.channel.close(mode: .all, promise: promise)
-            //return promise.futureResult
-            
-        } else {
-            //let promise = self.channel.eventLoop.makePromise(of: Void.self)
-            print("Stream[\(streamID.id)] -> Force Closing")
+        case .receiveClosed:
             self._streamState = .closed
-            self.channel.close(mode: .all, promise: nil)
+        case .writeClosed, .closed, .reset:
             return self.channel.eventLoop.makeSucceededVoidFuture()
         }
+        self.channel.close(mode: .all, promise: nil)
+        return self.channel.eventLoop.makeSucceededVoidFuture()
     }
 
     /// Sends a reset stream message to our remote peer, immediately shutting down the Stream.
