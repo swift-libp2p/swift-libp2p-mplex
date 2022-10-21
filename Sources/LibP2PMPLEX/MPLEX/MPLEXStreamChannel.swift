@@ -702,6 +702,7 @@ final class MPLEXStreamChannel: Channel, ChannelCore {
         let closeFrame = MPLEXFrame(streamID: self.streamID!, payload: .close)
         self.receiveOutboundFrame(closeFrame, promise: nil)
         self.multiplexer.childChannelFlush()
+        self.multiplexer.childChannelWriteClosed(self.streamID!)
     }
 
     private func closedCleanly() {
@@ -982,7 +983,7 @@ internal extension MPLEXStreamChannel {
             self.errorEncountered(error: err)
         } else {
             //print("MPLEXFrame[\(self.streamID!.id)]::RecieveStreamClosed while in state \(self.state)")
-            if self.state == .closed || self.state == .closing {
+            if self.state == .closed || self.state == .closing || self.state == .idle || self.state == .localActive {
                 //print("MPLEXFrame[\(self.streamID!.id)]::Closing cleanly")
                 self.closedCleanly()
             } else {

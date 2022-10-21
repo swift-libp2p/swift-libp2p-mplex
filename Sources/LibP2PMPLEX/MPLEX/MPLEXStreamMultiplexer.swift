@@ -158,12 +158,13 @@ public final class MPLEXStreamMultiplexer: ChannelInboundHandler, ChannelOutboun
             
             if case .close = frame.payload, let stream = self.streamMap[frame.streamID] {
                 logger.trace("Found an existing stream... state == \(stream.streamState)")
-                if stream.streamState == .writeClosed {
+                if stream._streamState == .writeClosed {
                     logger.trace("We received a close message on a stream that was already half closed. Shutting down channel.")
                     channel.receiveStreamClosed(nil)
                     channel.channel.close(mode: .all, promise: nil)
                     self.streamMap.removeValue(forKey: frame.streamID)
                     self._streams.removeValue(forKey: frame.streamID)
+                    self.onStreamEnd?(stream)
                     return
                 } else {
                     //logger.trace("We received a close message on a stream. Responding with close frame")
@@ -171,6 +172,7 @@ public final class MPLEXStreamMultiplexer: ChannelInboundHandler, ChannelOutboun
                     logger.trace("Alerting ChildChannel of close")
                     channel.receiveStreamClosed(nil)
                     stream._streamState = .receiveClosed
+                    self.onStreamEnd?(stream)
                     return
                 }
             }
@@ -179,8 +181,9 @@ public final class MPLEXStreamMultiplexer: ChannelInboundHandler, ChannelOutboun
                 logger.trace("Existing stream needs to be reset")
                 channel.receiveStreamClosed(.streamClosed)
                 channel.channel.close(mode: .all, promise: nil)
-                self.streamMap.removeValue(forKey: frame.streamID)
+                let stream = self.streamMap.removeValue(forKey: frame.streamID)
                 self._streams.removeValue(forKey: frame.streamID)
+                if let stream = stream { self.onStreamEnd?(stream) }
                 return
             }
             
@@ -206,13 +209,14 @@ public final class MPLEXStreamMultiplexer: ChannelInboundHandler, ChannelOutboun
             )
 
             self._streams[frame.streamID] = channel
-            self.streamMap[frame.streamID] = MPLEXStream(channel: channel.channel, mode: .listener, id: frame.streamID.id, name: "MPLEXStream\(frame.streamID.id)", proto: "")
+            let stream = MPLEXStream(channel: channel.channel, mode: .listener, id: frame.streamID.id, name: "MPLEXStream\(frame.streamID.id)", proto: "")
+            self.streamMap[frame.streamID] = stream
             channel.configureInboundStream(initializer: self.inboundStreamStateInitializer)
             //channel.receiveInboundFrame(frame)
-            
             if !channel.inList {
                 self.didReadChannels.append(channel)
             }
+            self.onStream?(stream)
         } else {
             // This frame is for a stream we know nothing about. We can't do much about it, so we
             // are going to fire an error and drop the frame.
@@ -225,15 +229,6 @@ public final class MPLEXStreamMultiplexer: ChannelInboundHandler, ChannelOutboun
     public func updateStream(channel:Channel, state:LibP2PCore.StreamState, proto:String) -> EventLoopFuture<Void> {
         self.channel.eventLoop.submit {
             if let idx = self.streamMap.first(where: { $1.channel === channel }) {
-//                let newStream = MPLEXStream(
-//                    channel: idx.value.channel,
-//                    mode: idx.value.mode,
-//                    id: idx.value.id,
-//                    name: idx.value.name,
-//                    proto: proto,
-//                    streamState: state
-//                )
-//                self.streamMap[idx.key] = newStream
                 self.streamMap[idx.key]?.updateStreamState(state: state, protocol: proto)
             } else {
                 self.logger.error("Unknown Child Channel Stream")
@@ -479,6 +474,17 @@ extension MPLEXStreamMultiplexer {
         //logger.trace("Child Channel Writing: Stream[\(frame.streamID.id)] -> \(Array<UInt8>(frame.messageBytes().readableBytesView).asString(base: .base16))")
         self.context.write(self.wrapOutboundOut(frame), promise: promise)
     }
+    
+    internal func childChannelWriteClosed(_ id:MPLEXStreamID) {
+        guard let str = self.streamMap[id] else { return }
+        switch str._streamState {
+        case .initialized, .open, .receiveClosed:
+            str._streamState = .writeClosed
+        case .writeClosed, .closed, .reset:
+            print("MPLEXStreamMultiplexer::ERROR:Invalid child channel stream state transition \(str._streamState) -> .writeClosed")
+            return
+        }
+    }
 
     internal func childChannelFlush() {
         self.flush(context: self.context)
@@ -541,6 +547,7 @@ extension MPLEXStreamMultiplexer: Muxer {
                 self.logger.trace("Opened new stream[\(streamID.id)] proceeding with MSS negotiation...")
                 let stream = MPLEXStream(channel: ch, mode: .initiator, id: streamID.id, name: "MPLEXStream\(streamID.id)", proto: proto)
                 self.streamMap[streamID] = stream
+                self.onStream?(stream)
                 streamPromise.succeed(stream)
             }
         }
