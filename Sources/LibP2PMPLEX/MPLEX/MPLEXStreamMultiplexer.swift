@@ -103,7 +103,7 @@ public final class MPLEXStreamMultiplexer: ChannelInboundHandler, ChannelOutboun
     
     // Each supported / registered handler will have it's own initializer, this should be a map of those...
     // Actually this will just be another instance of MSS
-    private let inboundStreamStateInitializer: MultiplexerAbstractChannel.InboundStreamStateInitializer
+    private var inboundStreamStateInitializer: MultiplexerAbstractChannel.InboundStreamStateInitializer!
     
     /// The main channel this muxer is installed on
     private let channel: Channel
@@ -117,7 +117,7 @@ public final class MPLEXStreamMultiplexer: ChannelInboundHandler, ChannelOutboun
     private var didReadChannels: MPLEXStreamChannelList = MPLEXStreamChannelList()
     
     /// The promise to succeed once we're up and running on the pipeline
-    private let muxedPromise:EventLoopPromise<Muxer>
+    private var muxedPromise:EventLoopPromise<Muxer>!
 
     /// The logger tied to our underlying connection
     private var logger:Logger
@@ -133,13 +133,15 @@ public final class MPLEXStreamMultiplexer: ChannelInboundHandler, ChannelOutboun
         // We push the call to `succeed` onto the end of the eventloop stack so we have time to remove upgraders
         // The problem with pushing this succeed onto the stack is that we can start attempting to upgrade a new childChannel before the connection know's it's muxed...
         //context.eventLoop.execute {
-            self.muxedPromise.succeed(self)
+        self.muxedPromise.succeed(self)
         //}
     }
 
     public func handlerRemoved(context: ChannelHandlerContext) {
-        logger.trace("MPLEXStreamMultiplexer:Removed...")
+        logger.notice("MPLEXStreamMultiplexer:Removed...")
         self.context = nil
+        self.inboundStreamStateInitializer = nil
+        self.muxedPromise = nil
         self.didReadChannels.removeAll()
     }
 
