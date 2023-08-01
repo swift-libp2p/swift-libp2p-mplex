@@ -138,7 +138,7 @@ public final class MPLEXStreamMultiplexer: ChannelInboundHandler, ChannelOutboun
     }
 
     public func handlerRemoved(context: ChannelHandlerContext) {
-        logger.notice("MPLEXStreamMultiplexer:Removed...")
+        logger.trace("MPLEXStreamMultiplexer:Removed...")
         self.context = nil
         self.inboundStreamStateInitializer = nil
         self.muxedPromise = nil
