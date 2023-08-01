@@ -25,7 +25,7 @@ public struct MPLEX: MuxerUpgrader {
     }
     
     public func printSelf() {
-        application.logger.notice("Hi I'm MPLEX")
+        application.logger.notice("Hi I'm MPLEX v6.7.0")
     }
 }
 
