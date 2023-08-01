@@ -64,4 +64,9 @@ final class LibP2PMPLEXTests: XCTestCase {
         
         XCTAssertNoThrow(try ByteToMessageDecoderVerifier.verifyDecoder(inputOutputPairs: exepectedInOuts, decoderFactory: { MPLEXFrameDecoder() }))
     }
+    
+    static var allTests = [
+        ("testMPLEXFrameDecoderNewStreams", testMPLEXFrameDecoderNewStreams),
+        ("testMPLEXFrameDecoderGoEchoReplay", testMPLEXFrameDecoderGoEchoReplay)
+    ]
 }
