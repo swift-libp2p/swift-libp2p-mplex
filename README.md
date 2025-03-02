@@ -66,11 +66,9 @@ Not Applicable
 
 ## Contributing
 
-Contributions are welcomed! This code is very much a proof of concept. I can guarantee you there's a better / safer way to accomplish the same results. Any suggestions, improvements, or even just critques, are welcome! 
+Contributions are welcomed! This code is very much a proof of concept. I can guarantee you there's a better / safer way to accomplish the same results. Any suggestions, improvements, or even just critiques, are welcome! 
 
 Let's make this code better together! 🤝
-
-[![](https://cdn.rawgit.com/jbenet/contribute-ipfs-gif/master/img/contribute.gif)](https://github.com/ipfs/community/blob/master/contributing.md)
 
 ## Credits
 This repo is just a gnarly fork of the beautiful http2 code by the swift nio team below...
