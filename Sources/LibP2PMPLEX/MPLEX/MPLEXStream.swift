@@ -144,7 +144,8 @@ public class MPLEXStream: _Stream {
         if state.rawValue > self._streamState.rawValue {
             //print("Stream[\(streamID.id)] -> Updating state from \(self._streamState) -> \(state)")
             self._streamState = state
-        }  //else { print("Stream[\(streamID.id)] -> Skipping invalid state change from \(self._streamState) -> \(state)") }
+        }
+        //else { print("Stream[\(streamID.id)] -> Skipping invalid state change from \(self._streamState) -> \(state)") }
 
         // Update our protocol if it hasn't been set yet
         guard self.protocolCodec == "" else {
