@@ -41,26 +41,32 @@ import NIOCore
 struct MultiplexerAbstractChannel {
     private var baseChannel: MPLEXStreamChannel
 
-    init(allocator: ByteBufferAllocator,
-         parent: Channel,
-         multiplexer: MPLEXStreamMultiplexer,
-         streamID: MPLEXStreamID?,
-         inboundStreamStateInitializer: InboundStreamStateInitializer) {
+    init(
+        allocator: ByteBufferAllocator,
+        parent: Channel,
+        multiplexer: MPLEXStreamMultiplexer,
+        streamID: MPLEXStreamID?,
+        inboundStreamStateInitializer: InboundStreamStateInitializer
+    ) {
         switch inboundStreamStateInitializer {
         case .includesStreamID:
             assert(streamID != nil)
-            self.baseChannel = .init(allocator: allocator,
-                                     parent: parent,
-                                     multiplexer: multiplexer,
-                                     streamID: streamID,
-                                     streamDataType: .frame)
+            self.baseChannel = .init(
+                allocator: allocator,
+                parent: parent,
+                multiplexer: multiplexer,
+                streamID: streamID,
+                streamDataType: .frame
+            )
 
         case .excludesStreamID:
-            self.baseChannel = .init(allocator: allocator,
-                                     parent: parent,
-                                     multiplexer: multiplexer,
-                                     streamID: streamID,
-                                     streamDataType: .framePayload)
+            self.baseChannel = .init(
+                allocator: allocator,
+                parent: parent,
+                multiplexer: multiplexer,
+                streamID: streamID,
+                streamDataType: .framePayload
+            )
         }
     }
 }
@@ -74,25 +80,25 @@ extension MultiplexerAbstractChannel {
 
 // MARK: API for MPLEXStreamMultiplexer
 extension MultiplexerAbstractChannel {
-    var channel:Channel {
-        return self.baseChannel.channel
+    var channel: Channel {
+        self.baseChannel.channel
     }
-    
+
     var streamID: MPLEXStreamID? {
-        return self.baseChannel.streamID
+        self.baseChannel.streamID
     }
 
     var channelID: ObjectIdentifier {
-        return ObjectIdentifier(self.baseChannel)
+        ObjectIdentifier(self.baseChannel)
     }
 
     var inList: Bool {
-        return self.baseChannel.inList
+        self.baseChannel.inList
     }
 
     var streamChannelListNode: MPLEXStreamChannelListNode {
         get {
-            return self.baseChannel.streamChannelListNode
+            self.baseChannel.streamChannelListNode
         }
         nonmutating set {
             self.baseChannel.streamChannelListNode = newValue
@@ -108,11 +114,15 @@ extension MultiplexerAbstractChannel {
         }
     }
 
-    func configure(initializer: ((Channel, MPLEXStreamID) -> EventLoopFuture<Void>)?, userPromise promise: EventLoopPromise<Channel>?) {
+    func configure(
+        initializer: ((Channel, MPLEXStreamID) -> EventLoopFuture<Void>)?,
+        userPromise promise: EventLoopPromise<Channel>?
+    ) {
         self.baseChannel.configure(initializer: initializer, userPromise: promise)
     }
 
-    func configure(initializer: ((Channel) -> EventLoopFuture<Void>)?, userPromise promise: EventLoopPromise<Channel>?) {
+    func configure(initializer: ((Channel) -> EventLoopFuture<Void>)?, userPromise promise: EventLoopPromise<Channel>?)
+    {
         self.baseChannel.configure(initializer: initializer, userPromise: promise)
     }
 
@@ -142,8 +152,8 @@ extension MultiplexerAbstractChannel {
 }
 
 extension MultiplexerAbstractChannel: Equatable {
-    static func ==(lhs: MultiplexerAbstractChannel, rhs: MultiplexerAbstractChannel) -> Bool {
-        return lhs.baseChannel === rhs.baseChannel
+    static func == (lhs: MultiplexerAbstractChannel, rhs: MultiplexerAbstractChannel) -> Bool {
+        lhs.baseChannel === rhs.baseChannel
     }
 }
 

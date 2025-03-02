@@ -47,9 +47,8 @@ struct MPLEXStreamChannelListNode {
 
     fileprivate var state: ListState = .notInList
 
-    internal init() { }
+    internal init() {}
 }
-
 
 extension MPLEXStreamChannelList {
     /// Append an element to the linked list.
@@ -93,10 +92,9 @@ extension MPLEXStreamChannelList {
     }
 
     mutating func removeAll() {
-        while self.removeFirst() != nil { }
+        while self.removeFirst() != nil {}
     }
 }
-
 
 // MARK:- IntrusiveLinkedListElement helpers.
 extension MPLEXStreamChannel {
