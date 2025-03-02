@@ -1,5 +1,19 @@
 //===----------------------------------------------------------------------===//
 //
+// This source file is part of the swift-libp2p open source project
+//
+// Copyright (c) 2022-2025 swift-libp2p project authors
+// Licensed under MIT
+//
+// See LICENSE for license information
+// See CONTRIBUTORS for the list of swift-libp2p project authors
+//
+// SPDX-License-Identifier: MIT
+//
+//===----------------------------------------------------------------------===//
+//
+//===----------------------------------------------------------------------===//
+//
 // This source file is part of the SwiftNIO open source project
 //
 // Copyright (c) 2017-2021 Apple Inc. and the SwiftNIO project authors
@@ -11,12 +25,6 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 //===----------------------------------------------------------------------===//
-//
-//  MPLEXStreamChannel.swift
-//  
-//
-//  Modified by Brandon Toms on 5/1/22.
-//
 
 import LibP2P
 
@@ -45,7 +53,7 @@ extension MPLEXStreamChannelOptions.Types {
     public struct StreamIDOption: ChannelOption {
         public typealias Value = MPLEXStreamID
 
-        public init() { }
+        public init() {}
     }
 }
 
@@ -122,32 +130,32 @@ private enum StreamChannelState {
     }
 }
 
-public struct MPLEXFrame:Equatable {
+public struct MPLEXFrame: Equatable {
     /// The streams ID
-    var streamID:MPLEXStreamID
-    
+    var streamID: MPLEXStreamID
+
     /// The payload of this frame
-    var payload:FramePayload
-    
-    enum FramePayload:Equatable {
+    var payload: FramePayload
+
+    enum FramePayload: Equatable {
         case inboundData(ByteBuffer)
         case outboundData(ByteBuffer)
         case close
         case reset
         case newStream
-        
-        var bytes:[UInt8] {
+
+        var bytes: [UInt8] {
             switch self {
             case .inboundData(let payload):
-                return Array<UInt8>(payload.readableBytesView)
+                return [UInt8](payload.readableBytesView)
             case .outboundData(let payload):
-                return Array<UInt8>(payload.readableBytesView)
+                return [UInt8](payload.readableBytesView)
             default:
                 return []
             }
         }
-        
-        var buffer:ByteBuffer {
+
+        var buffer: ByteBuffer {
             switch self {
             case .inboundData(let payload):
                 return payload
@@ -159,7 +167,7 @@ public struct MPLEXFrame:Equatable {
         }
     }
 
-    var flag:MPLEXFlag {
+    var flag: MPLEXFlag {
         switch payload {
         case .newStream:
             return .NewStream
@@ -226,18 +234,20 @@ final class MPLEXStreamChannel: Channel, ChannelCore {
     /// The stream data type of the channel.
     private let streamDataType: MPLEXStreamDataType
 
-    weak var channel:Channel! {
+    weak var channel: Channel! {
         self
     }
-    
-    internal init(allocator: ByteBufferAllocator,
-                  parent: Channel,
-                  multiplexer: MPLEXStreamMultiplexer,
-                  streamID: MPLEXStreamID?,
-                  //targetWindowSize: Int32,
-                  //outboundBytesHighWatermark: Int,
-                  //outboundBytesLowWatermark: Int,
-                  streamDataType: MPLEXStreamDataType) {
+
+    internal init(
+        allocator: ByteBufferAllocator,
+        parent: Channel,
+        multiplexer: MPLEXStreamMultiplexer,
+        streamID: MPLEXStreamID?,
+        //targetWindowSize: Int32,
+        //outboundBytesHighWatermark: Int,
+        //outboundBytesLowWatermark: Int,
+        streamDataType: MPLEXStreamDataType
+    ) {
         self.allocator = allocator
         self.closePromise = parent.eventLoop.makePromise()
         //self.localAddress = parent.localAddress
@@ -259,16 +269,19 @@ final class MPLEXStreamChannel: Channel, ChannelCore {
         // go much further.
         self.autoRead = false
         self._pipeline = ChannelPipeline(channel: self)
-        
+
         //print("MPLEXStreamChannel::Initialized")
         //print("MPLEXStreamChannel::\(remoteAddress?.description ?? "NIL")")
     }
-    
+
     //deinit {
     //    print("MPLEXStreamChannel::Deinitialized")
     //}
 
-    internal func configure(initializer: ((Channel, MPLEXStreamID) -> EventLoopFuture<Void>)?, userPromise promise: EventLoopPromise<Channel>?) {
+    internal func configure(
+        initializer: ((Channel, MPLEXStreamID) -> EventLoopFuture<Void>)?,
+        userPromise promise: EventLoopPromise<Channel>?
+    ) {
         assert(self.streamDataType == .frame)
         // We need to configure this channel. This involves doing four things:
         // 1. Setting our autoRead state from the parent
@@ -300,7 +313,10 @@ final class MPLEXStreamChannel: Channel, ChannelCore {
         }
     }
 
-    internal func configure(initializer: ((Channel) -> EventLoopFuture<Void>)?, userPromise promise: EventLoopPromise<Channel>?) {
+    internal func configure(
+        initializer: ((Channel) -> EventLoopFuture<Void>)?,
+        userPromise promise: EventLoopPromise<Channel>?
+    ) {
         assert(self.streamDataType == .framePayload)
         // We need to configure this channel. This involves doing four things:
         // 1. Setting our autoRead state from the parent
@@ -423,11 +439,11 @@ final class MPLEXStreamChannel: Channel, ChannelCore {
     private let multiplexer: MPLEXStreamMultiplexer
 
     public var closeFuture: EventLoopFuture<Void> {
-        return self.closePromise.futureResult
+        self.closePromise.futureResult
     }
 
     public var pipeline: ChannelPipeline {
-        return self._pipeline
+        self._pipeline
     }
 
     public var localAddress: SocketAddress? {
@@ -501,23 +517,23 @@ final class MPLEXStreamChannel: Channel, ChannelCore {
     }
 
     public var isWritable: Bool {
-        return self._isWritable.load()
+        self._isWritable.load()
     }
 
     private let _isWritable: NIOAtomic<Bool>
 
     private var _isActive: Bool {
-        return self.state == .active || self.state == .closing || self.state == .localActive
+        self.state == .active || self.state == .closing || self.state == .localActive
     }
 
     public var isActive: Bool {
-        return self._isActiveAtomic.load()
+        self._isActiveAtomic.load()
     }
 
     private let _isActiveAtomic: NIOAtomic<Bool>
 
     public var _channelCore: ChannelCore {
-        return self
+        self
     }
 
     public let eventLoop: EventLoop
@@ -597,7 +613,7 @@ final class MPLEXStreamChannel: Channel, ChannelCore {
                 fatalError("Unknown data written to MPLEXStreamChannel -> \(data)")
             }
         }
-        
+
         // We need a promise to attach our flow control callback to.
         // Regardless of whether the write succeeded or failed, we don't count
         // the bytes any longer.
@@ -613,7 +629,7 @@ final class MPLEXStreamChannel: Channel, ChannelCore {
         //}
         //self.pendingWrites.append((streamData, promise))
         self.pendingWrites.append(streamData)
-        
+
         // Ok, we can make an outcall now, which means we can safely deal with the flow control.
         //if case .changed(newValue: let value) = self.writabilityManager.bufferedBytes(writeSize) {
         //    self.changeWritability(to: value)
@@ -653,7 +669,7 @@ final class MPLEXStreamChannel: Channel, ChannelCore {
             promise?.fail(ChannelError.alreadyClosed)
             return
         }
-        
+
         // Store the pending close promise: it'll be succeeded later.
         if let promise = promise {
             if let pendingPromise = self.pendingClosePromise {
@@ -697,7 +713,7 @@ final class MPLEXStreamChannel: Channel, ChannelCore {
         }
 
         self.modifyingState { $0.beginClosing() }
-        
+
         // We should have a stream ID here, force-unwrap is safe.
         let closeFrame = MPLEXFrame(streamID: self.streamID!, payload: .close)
         self.receiveOutboundFrame(closeFrame, promise: nil)
@@ -731,8 +747,8 @@ final class MPLEXStreamChannel: Channel, ChannelCore {
             self._pipeline = nil
             self.pendingReads.removeAll()
             self.pendingReads = nil
-//            print("Unsatisfied Read: \(self.unsatisfiedRead)")
-//            print("Pending Reads: \(self.pendingReads.count)")
+            //            print("Unsatisfied Read: \(self.unsatisfiedRead)")
+            //            print("Pending Reads: \(self.pendingReads.count)")
         }
     }
 
@@ -740,7 +756,7 @@ final class MPLEXStreamChannel: Channel, ChannelCore {
         guard self.state != .closed else {
             return
         }
-        
+
         if self.state == .active {
             //print("MPLEXFrame[\(self.streamID!.id)]::ErrorEncountered -> Sending Reset Frame")
             // We should have a stream ID here, force-unwrap is safe.
@@ -748,7 +764,7 @@ final class MPLEXStreamChannel: Channel, ChannelCore {
             self.receiveOutboundFrame(resetFrame, promise: nil)
             self.multiplexer.childChannelFlush()
         }
-        
+
         self.modifyingState { $0.completeClosing() }
         self.dropPendingReads()
         self.failPendingWrites(error: error)
@@ -808,7 +824,7 @@ final class MPLEXStreamChannel: Channel, ChannelCore {
 }
 
 // MARK:- Functions used to manage pending reads and writes.
-private extension MPLEXStreamChannel {
+extension MPLEXStreamChannel {
     /// Drop all pending reads.
     private func dropPendingReads() {
         /// We don't need to report the dropped reads, just remove them all.
@@ -822,7 +838,7 @@ private extension MPLEXStreamChannel {
             let frame = self.pendingReads.removeFirst()
 
             let anyStreamData: NIOAny
-//            let dataLength: Int?
+            //            let dataLength: Int?
 
             switch self.streamDataType {
             case .frame:
@@ -831,10 +847,12 @@ private extension MPLEXStreamChannel {
                     //print("MPLEXStreamChannel::DeliverPendingReads -> frame to buffer")
                     anyStreamData = NIOAny(frame.payload.buffer)
                 } else {
-                    print("MPLEXFrame[\(streamID?.id ?? 111)]::DeliverPendingReads -> Warning: Dropping frame with empty buffer")
+                    print(
+                        "MPLEXFrame[\(streamID?.id ?? 111)]::DeliverPendingReads -> Warning: Dropping frame with empty buffer"
+                    )
                     continue
                 }
-                
+
             case .framePayload:
                 //print("MPLEXStreamChannel::DeliverPendingReads -> framePayload to buffer")
                 switch frame.payload {
@@ -846,25 +864,25 @@ private extension MPLEXStreamChannel {
                 default:
                     continue
                 }
-                //anyStreamData = NIOAny(frame.payload.buffer)
+            //anyStreamData = NIOAny(frame.payload.buffer)
             }
 
-//            switch frame.payload {
-//            case .data(let data):
-//                dataLength = data.payload.readableBytes
-//            default:
-//                dataLength = nil
-//            }
+            //            switch frame.payload {
+            //            case .data(let data):
+            //                dataLength = data.payload.readableBytes
+            //            default:
+            //                dataLength = nil
+            //            }
 
             self.pipeline.fireChannelRead(anyStreamData)
 
-//            if let size = dataLength, let increment = self.windowManager.bufferedFrameEmitted(size: size) {
-//                // To have a pending read, we must have a stream ID.
-//                let frame = MPLEXFrame(streamID: self.streamID!, payload: .windowUpdate(windowSizeIncrement: increment))
-//                self.receiveOutboundFrame(frame, promise: nil)
-//                // This flush should really go away, but we need it for now until we sort out window management.
-//                self.multiplexer.childChannelFlush()
-//            }
+            //            if let size = dataLength, let increment = self.windowManager.bufferedFrameEmitted(size: size) {
+            //                // To have a pending read, we must have a stream ID.
+            //                let frame = MPLEXFrame(streamID: self.streamID!, payload: .windowUpdate(windowSizeIncrement: increment))
+            //                self.receiveOutboundFrame(frame, promise: nil)
+            //                // This flush should really go away, but we need it for now until we sort out window management.
+            //                self.multiplexer.childChannelFlush()
+            //            }
         }
         self.pipeline.fireChannelReadComplete()
     }
@@ -880,7 +898,7 @@ private extension MPLEXStreamChannel {
         if self.streamID == nil {
             self.streamID = self.multiplexer.requestStreamID(forChannel: self)
         }
-        
+
         while self.pendingWrites.hasMark {
             //let (streamData, promise) = self.pendingWrites.removeFirst()
             let streamData = self.pendingWrites.removeFirst()
@@ -911,7 +929,7 @@ private extension MPLEXStreamChannel {
 }
 
 // MARK:- Functions used to communicate between the `MPLEXStreamMultiplexer` and the `MPLEXStreamChannel`.
-internal extension MPLEXStreamChannel {
+extension MPLEXStreamChannel {
     /// Called when a frame is received from the network.
     ///
     /// - parameters:
@@ -926,20 +944,20 @@ internal extension MPLEXStreamChannel {
         // calculation on whether we emit a WINDOW_UPDATE frame is based on the bytes we have
         // actually delivered into the pipeline.
         //if case .data(let dataPayload) = frame.payload {
-            //self.windowManager.bufferedFrameReceived(size: dataPayload.data.readableBytes)
+        //self.windowManager.bufferedFrameReceived(size: dataPayload.data.readableBytes)
 
-            // No further window update frames should be sent.
-            //if dataPayload.endStream {
-            //    self.windowManager.closed = true
-            //}
+        // No further window update frames should be sent.
+        //if dataPayload.endStream {
+        //    self.windowManager.closed = true
+        //}
         //}
         //else if case .headers(let headersPayload) = frame.payload, headersPayload.endStream {
-            // No further window update frames should be sent.
+        // No further window update frames should be sent.
         //    self.windowManager.closed = true
         //}
 
         self.pendingReads.append(frame)
-        
+
         if self.state == .localActive {
             self.networkActivationReceived()
         }
@@ -976,7 +994,7 @@ internal extension MPLEXStreamChannel {
             self.unsatisfiedRead = false
             self.deliverPendingReads()
         }
-        
+
         if let reason = reason {
             // To receive from the network, it must be safe to force-unwrap here.
             let err = NIOMPLEXErrors.streamClosed(streamID: self.streamID!, errorCode: reason)
@@ -994,50 +1012,50 @@ internal extension MPLEXStreamChannel {
         }
     }
 
-//    func receiveWindowUpdatedEvent(_ windowSize: Int) {
-//        if let increment = self.windowManager.newWindowSize(windowSize) {
-//            // To receive from the network, it must be safe to force-unwrap here.
-//            let frame = MPLEXFrame(streamID: self.streamID!, payload: .windowUpdate(windowSizeIncrement: increment))
-//            self.receiveOutboundFrame(frame, promise: nil)
-//            // This flush should really go away, but we need it for now until we sort out window management.
-//            self.multiplexer.childChannelFlush()
-//        }
-//    }
-//
-//    func initialWindowSizeChanged(delta: Int) {
-//        if let increment = self.windowManager.initialWindowSizeChanged(delta: delta) {
-//            // To receive from the network, it must be safe to force-unwrap here.
-//            let frame = MPLEXFrame(streamID: self.streamID!, payload: .windowUpdate(windowSizeIncrement: increment))
-//            self.receiveOutboundFrame(frame, promise: nil)
-//            // This flush should really go away, but we need it for now until we sort out window management.
-//            self.multiplexer.childChannelFlush()
-//        }
-//    }
+    //    func receiveWindowUpdatedEvent(_ windowSize: Int) {
+    //        if let increment = self.windowManager.newWindowSize(windowSize) {
+    //            // To receive from the network, it must be safe to force-unwrap here.
+    //            let frame = MPLEXFrame(streamID: self.streamID!, payload: .windowUpdate(windowSizeIncrement: increment))
+    //            self.receiveOutboundFrame(frame, promise: nil)
+    //            // This flush should really go away, but we need it for now until we sort out window management.
+    //            self.multiplexer.childChannelFlush()
+    //        }
+    //    }
+    //
+    //    func initialWindowSizeChanged(delta: Int) {
+    //        if let increment = self.windowManager.initialWindowSizeChanged(delta: delta) {
+    //            // To receive from the network, it must be safe to force-unwrap here.
+    //            let frame = MPLEXFrame(streamID: self.streamID!, payload: .windowUpdate(windowSizeIncrement: increment))
+    //            self.receiveOutboundFrame(frame, promise: nil)
+    //            // This flush should really go away, but we need it for now until we sort out window management.
+    //            self.multiplexer.childChannelFlush()
+    //        }
+    //    }
 
     func receiveParentChannelReadComplete() {
         self.tryToRead()
     }
 
-//    func parentChannelWritabilityChanged(newValue: Bool) {
-//        // There's a trick here that's worth noting: if the child channel hasn't either sent a frame
-//        // or been activated on the network, we don't actually want to change the observable writability.
-//        // This is because in this case we really want user code to send a frame as soon as possible to avoid
-//        // issues with their stream ID becoming out of date. Once the state transitions we can update
-//        // the writability if needed.
-//        guard case .changed(newValue: let localValue) = self.writabilityManager.parentWritabilityChanged(newValue) else {
-//            return
-//        }
-//
-//        // Ok, the writability changed.
-//        switch self.state {
-//        case .idle, .localActive:
-//            // Do nothing here.
-//            return
-//        case .remoteActive, .active, .closing, .closingNeverActivated, .closed:
-//            self._isWritable.store(localValue)
-//            self.pipeline.fireChannelWritabilityChanged()
-//        }
-//    }
+    //    func parentChannelWritabilityChanged(newValue: Bool) {
+    //        // There's a trick here that's worth noting: if the child channel hasn't either sent a frame
+    //        // or been activated on the network, we don't actually want to change the observable writability.
+    //        // This is because in this case we really want user code to send a frame as soon as possible to avoid
+    //        // issues with their stream ID becoming out of date. Once the state transitions we can update
+    //        // the writability if needed.
+    //        guard case .changed(newValue: let localValue) = self.writabilityManager.parentWritabilityChanged(newValue) else {
+    //            return
+    //        }
+    //
+    //        // Ok, the writability changed.
+    //        switch self.state {
+    //        case .idle, .localActive:
+    //            // Do nothing here.
+    //            return
+    //        case .remoteActive, .active, .closing, .closingNeverActivated, .closed:
+    //            self._isWritable.store(localValue)
+    //            self.pipeline.fireChannelWritabilityChanged()
+    //        }
+    //    }
 
     func receiveStreamError(_ error: NIOMPLEXErrors.StreamError) {
         assert(error.streamID == self.streamID)
@@ -1047,7 +1065,9 @@ internal extension MPLEXStreamChannel {
 
 extension MPLEXStreamChannel {
     // A helper function used to ensure that state modification leads to changes in the channel active atomic.
-    private func modifyingState<ReturnType>(_ closure: (inout StreamChannelState) throws -> ReturnType) rethrows -> ReturnType {
+    private func modifyingState<ReturnType>(
+        _ closure: (inout StreamChannelState) throws -> ReturnType
+    ) rethrows -> ReturnType {
         defer {
             self._isActiveAtomic.store(self._isActive)
         }
@@ -1058,7 +1078,7 @@ extension MPLEXStreamChannel {
 // MARK: Custom String Convertible
 extension MPLEXStreamChannel {
     public var description: String {
-        return "MPLEXStreamChannel(streamID: \(String(describing: self.streamID)), isActive: \(self.isActive), isWritable: \(self.isWritable))"
+        "MPLEXStreamChannel(streamID: \(String(describing: self.streamID)), isActive: \(self.isActive), isWritable: \(self.isWritable))"
     }
 }
 
@@ -1081,12 +1101,12 @@ extension MPLEXStreamChannel {
         ///
         /// - Important: Must be called on the `EventLoop` the `Channel` is running on.
         public func getOption<Option: ChannelOption>(_ option: Option) throws -> Option.Value {
-            return try self.channel.getOption0(option)
+            try self.channel.getOption0(option)
         }
     }
 
     /// Returns a view of the `Channel` exposing synchronous versions of `setOption` and `getOption`.
     public var syncOptions: NIOSynchronousChannelOptions? {
-        return SynchronousOptions(channel: self)
+        SynchronousOptions(channel: self)
     }
 }

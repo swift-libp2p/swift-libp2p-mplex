@@ -1,5 +1,19 @@
 //===----------------------------------------------------------------------===//
 //
+// This source file is part of the swift-libp2p open source project
+//
+// Copyright (c) 2022-2025 swift-libp2p project authors
+// Licensed under MIT
+//
+// See LICENSE for license information
+// See CONTRIBUTORS for the list of swift-libp2p project authors
+//
+// SPDX-License-Identifier: MIT
+//
+//===----------------------------------------------------------------------===//
+//
+//===----------------------------------------------------------------------===//
+//
 // This source file is part of the SwiftNIO open source project
 //
 // Copyright (c) 2017-2018 Apple Inc. and the SwiftNIO project authors
@@ -11,16 +25,10 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 //===----------------------------------------------------------------------===//
-//
-//  MPLEXErrors.swift
-//
-//
-//  Modified by Brandon Toms on 5/1/22.
-//
 
-public protocol NIOMPLEXError: Equatable, Error { }
+public protocol NIOMPLEXError: Equatable, Error {}
 
-public enum MuxerError:Error {
+public enum MuxerError: Error {
     case custom(String)
 }
 
@@ -28,19 +36,24 @@ public enum MuxerError:Error {
 public enum NIOMPLEXErrors {
 
     public static func noSuchStream(streamID: MPLEXStreamID, file: String = #file, line: UInt = #line) -> NoSuchStream {
-        return NoSuchStream(streamID: streamID, file: file, line: line)
+        NoSuchStream(streamID: streamID, file: file, line: line)
     }
-    
-    public static func streamClosed(streamID: MPLEXStreamID, errorCode: MPLEXErrorCode, file: String = #file, line: UInt = #line) -> StreamClosed {
-        return StreamClosed(streamID: streamID, errorCode: errorCode, file: file, line: line)
+
+    public static func streamClosed(
+        streamID: MPLEXStreamID,
+        errorCode: MPLEXErrorCode,
+        file: String = #file,
+        line: UInt = #line
+    ) -> StreamClosed {
+        StreamClosed(streamID: streamID, errorCode: errorCode, file: file, line: line)
     }
-    
+
     public static func noStreamIDAvailable(file: String = #file, line: UInt = #line) -> NoStreamIDAvailable {
-        return NoStreamIDAvailable(file: file, line: line)
+        NoStreamIDAvailable(file: file, line: line)
     }
 
     public static func streamError(streamID: MPLEXStreamID, baseError: Error) -> StreamError {
-        return StreamError(streamID: streamID, baseError: baseError)
+        StreamError(streamID: streamID, baseError: baseError)
     }
 
     /// An attempt was made to issue a write on a stream that does not exist.
@@ -61,8 +74,8 @@ public enum NIOMPLEXErrors {
             self.location = _location(file: file, line: line)
         }
 
-        public static func ==(lhs: NoSuchStream, rhs: NoSuchStream) -> Bool {
-            return lhs.streamID == rhs.streamID
+        public static func == (lhs: NoSuchStream, rhs: NoSuchStream) -> Bool {
+            lhs.streamID == rhs.streamID
         }
     }
 
@@ -88,8 +101,8 @@ public enum NIOMPLEXErrors {
             self.location = _location(file: file, line: line)
         }
 
-        public static func ==(lhs: StreamClosed, rhs: StreamClosed) -> Bool {
-            return lhs.streamID == rhs.streamID && lhs.errorCode == rhs.errorCode
+        public static func == (lhs: StreamClosed, rhs: StreamClosed) -> Bool {
+            lhs.streamID == rhs.streamID && lhs.errorCode == rhs.errorCode
         }
     }
 
@@ -100,7 +113,7 @@ public enum NIOMPLEXErrors {
 
         /// The location where the error was thrown.
         public var location: String {
-            return _location(file: self.file, line: self.line)
+            _location(file: self.file, line: self.line)
         }
 
         @available(*, deprecated, renamed: "noStreamIDAvailable")
@@ -113,8 +126,8 @@ public enum NIOMPLEXErrors {
             self.line = line
         }
 
-        public static func ==(lhs: NoStreamIDAvailable, rhs: NoStreamIDAvailable) -> Bool {
-            return true
+        public static func == (lhs: NoStreamIDAvailable, rhs: NoStreamIDAvailable) -> Bool {
+            true
         }
     }
 
@@ -135,7 +148,7 @@ public enum NIOMPLEXErrors {
             }
 
             func copy() -> Storage {
-                return Storage(
+                Storage(
                     streamID: self.streamID,
                     baseError: self.baseError
                 )
@@ -152,7 +165,7 @@ public enum NIOMPLEXErrors {
 
         public var baseError: Error {
             get {
-                return self.storage.baseError
+                self.storage.baseError
             }
             set {
                 self.copyStorageIfNotUniquelyReferenced()
@@ -162,7 +175,7 @@ public enum NIOMPLEXErrors {
 
         public var streamID: MPLEXStreamID {
             get {
-                return self.storage.streamID
+                self.storage.streamID
             }
             set {
                 self.copyStorageIfNotUniquelyReferenced()
@@ -171,7 +184,7 @@ public enum NIOMPLEXErrors {
         }
 
         public var description: String {
-            return "StreamError(streamID: \(self.streamID), baseError: \(self.baseError))"
+            "StreamError(streamID: \(self.streamID), baseError: \(self.baseError))"
         }
 
         fileprivate init(streamID: MPLEXStreamID, baseError: Error) {
@@ -179,7 +192,6 @@ public enum NIOMPLEXErrors {
         }
     }
 }
-
 
 /// This enum covers errors that are thrown internally for messaging reasons. These should
 /// not leak.
@@ -189,10 +201,10 @@ internal enum InternalError: Error {
     case codecError(code: MPLEXErrorCode)
 }
 
-extension InternalError: Hashable { }
+extension InternalError: Hashable {}
 
 private func _location(file: String, line: UInt) -> String {
-    return "\(file):\(line)"
+    "\(file):\(line)"
 }
 
 private final class StringAndLocationStorage: Equatable {
@@ -201,7 +213,7 @@ private final class StringAndLocationStorage: Equatable {
     var line: UInt
 
     var location: String {
-        return _location(file: self.file, line: self.line)
+        _location(file: self.file, line: self.line)
     }
 
     init(_ value: String, file: String, line: UInt) {
@@ -211,11 +223,11 @@ private final class StringAndLocationStorage: Equatable {
     }
 
     func copy() -> StringAndLocationStorage {
-        return StringAndLocationStorage(self.value, file: self.file, line: self.line)
+        StringAndLocationStorage(self.value, file: self.file, line: self.line)
     }
 
-    static func ==(lhs: StringAndLocationStorage, rhs: StringAndLocationStorage) -> Bool {
+    static func == (lhs: StringAndLocationStorage, rhs: StringAndLocationStorage) -> Bool {
         // Only compare the value. The 'file' is not relevant here.
-        return lhs.value == rhs.value
+        lhs.value == rhs.value
     }
 }

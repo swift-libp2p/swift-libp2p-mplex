@@ -1,5 +1,19 @@
 //===----------------------------------------------------------------------===//
 //
+// This source file is part of the swift-libp2p open source project
+//
+// Copyright (c) 2022-2025 swift-libp2p project authors
+// Licensed under MIT
+//
+// See LICENSE for license information
+// See CONTRIBUTORS for the list of swift-libp2p project authors
+//
+// SPDX-License-Identifier: MIT
+//
+//===----------------------------------------------------------------------===//
+//
+//===----------------------------------------------------------------------===//
+//
 // This source file is part of the SwiftNIO open source project
 //
 // Copyright (c) 2017-2021 Apple Inc. and the SwiftNIO project authors
@@ -11,36 +25,29 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 //===----------------------------------------------------------------------===//
-//
-//  MPLEXStreamMultiplexer.swift
-//
-//
-//  Modified by Brandon Toms on 5/1/22.
-//
 
-import LibP2P
 import Foundation
+import LibP2P
 import NIOCore
-
 
 /// MPLEX spawns a new channel / pipeline for each stream (similar to HTTP2)
 ///
 /// Each stream having its own pipeline makes adding route specific middleware straightforward and easy (vairous delimiters, object deserailization, length prefixs, etc...)
-internal enum MPLEXFlag:UInt64 {
-    case NewStream        = 0
-    case MessageReceiver  = 1
+internal enum MPLEXFlag: UInt64 {
+    case NewStream = 0
+    case MessageReceiver = 1
     case MessageInitiator = 2
-    case CloseReceiver    = 3
-    case CloseInitiator   = 4
-    case ResetReceiver    = 5
-    case ResetInitiator   = 6
+    case CloseReceiver = 3
+    case CloseInitiator = 4
+    case ResetReceiver = 5
+    case ResetInitiator = 6
 }
 
-public struct MPLEXStreamID:Hashable {
-    let id:UInt64
-    let initiator:Bool
-    
-    init(id:UInt64, flag:MPLEXFlag) {
+public struct MPLEXStreamID: Hashable {
+    let id: UInt64
+    let initiator: Bool
+
+    init(id: UInt64, flag: MPLEXFlag) {
         self.id = id
         switch flag {
         case .NewStream, .MessageInitiator, .CloseInitiator, .ResetInitiator:
@@ -49,13 +56,13 @@ public struct MPLEXStreamID:Hashable {
             self.initiator = true
         }
     }
-    
-    init(id:UInt64, mode: LibP2P.Mode) {
+
+    init(id: UInt64, mode: LibP2P.Mode) {
         self.id = id
         self.initiator = mode == .initiator ? true : false
     }
-    
-    var description:String {
+
+    var description: String {
         "[\(id)][\(self.initiator ? "Outbound" : "Inbound")]"
     }
 }
@@ -68,60 +75,60 @@ public struct MPLEXStreamID:Hashable {
 /// on `MPLEXFrame` objects as their base communication atom, as opposed to the regular
 /// NIO `SelectableChannel` objects which use `ByteBuffer` and `IOData`.
 public final class MPLEXStreamMultiplexer: ChannelInboundHandler, ChannelOutboundHandler, MessageExtractableHandler {
-    public static var protocolCodec:String = "/mplex/6.7.0"
-    
+    public static var protocolCodec: String = "/mplex/6.7.0"
+
     public typealias InboundIn = MPLEXFrame
     public typealias InboundOut = MPLEXFrame
     public typealias OutboundIn = MPLEXFrame
     public typealias OutboundOut = MPLEXFrame
-    
+
     /// Muxer Callbacks and Delegates
     public var onStream: ((_Stream) -> Void)? = nil
     public var onStreamEnd: ((LibP2PCore.Stream) -> Void)? = nil
     public var _connection: Connection?
 
-    let localPeerID:PeerID
-        
+    let localPeerID: PeerID
+
     // Streams which have a stream ID.
     // - Note: MPLEX supports streams with the same ID to be opened by either party, therefore a simple ID hashmap wont work...
     //private var streams: [MPLEXStreamID: MultiplexerAbstractChannel] = [:]
-    private var _streams:[MPLEXStreamID:MultiplexerAbstractChannel] = [:]
-//    var streams: [MultiplexerAbstractChannel] {
-//        _streams.map { $0.value }
-//    }
-    private var streamMap:[MPLEXStreamID:MPLEXStream] = [:]
-    
-    private var supportedProtocols:[LibP2P.ProtocolRegistration] = []
-    
+    private var _streams: [MPLEXStreamID: MultiplexerAbstractChannel] = [:]
+    //    var streams: [MultiplexerAbstractChannel] {
+    //        _streams.map { $0.value }
+    //    }
+    private var streamMap: [MPLEXStreamID: MPLEXStream] = [:]
+
+    private var supportedProtocols: [LibP2P.ProtocolRegistration] = []
+
     // Streams which don't yet have a stream ID assigned to them.
     private var pendingStreams: [ObjectIdentifier: MultiplexerAbstractChannel] = [:]
-    
+
     struct RegisteredProtocol {
-        let protocolString:String
-        let initializer:() -> [ChannelHandler]
+        let protocolString: String
+        let initializer: () -> [ChannelHandler]
     }
-    
+
     // Each supported / registered handler will have it's own initializer, this should be a map of those...
     // Actually this will just be another instance of MSS
     private var inboundStreamStateInitializer: MultiplexerAbstractChannel.InboundStreamStateInitializer!
-    
+
     /// The main channel this muxer is installed on
     private let channel: Channel
     private var context: ChannelHandlerContext!
-    
+
     /// A helper function for gathering the next StreamID to use
-    private var nextOutboundStreamID:MPLEXStreamID
-    
+    private var nextOutboundStreamID: MPLEXStreamID
+
     /// Flow control stuff...
     private var flushState: FlushState = .notReading
     private var didReadChannels: MPLEXStreamChannelList = MPLEXStreamChannelList()
-    
+
     /// The promise to succeed once we're up and running on the pipeline
-    private var muxedPromise:EventLoopPromise<Muxer>!
+    private var muxedPromise: EventLoopPromise<Muxer>!
 
     /// The logger tied to our underlying connection
-    private var logger:Logger
-    
+    private var logger: Logger
+
     public func handlerAdded(context: ChannelHandlerContext) {
         // We now need to check that we're on the same event loop as the one we were originally given.
         // If we weren't, this is a hard failure, as there is a thread-safety issue here.
@@ -151,17 +158,21 @@ public final class MPLEXStreamMultiplexer: ChannelInboundHandler, ChannelOutboun
         // We need to strip the MPLEX Stream ID off the front of the payload
         //let streamID = frame.streamID
 
-        logger.trace("MPLEXStreamMultiplexer:Frame Received -> ID: \(frame.streamID), flag: \(frame.flag), payload: \(frame.payload.bytes.asString(base: .base16))")
-        
+        logger.trace(
+            "MPLEXStreamMultiplexer:Frame Received -> ID: \(frame.streamID), flag: \(frame.flag), payload: \(frame.payload.bytes.asString(base: .base16))"
+        )
+
         self.flushState.startReading()
 
         /// If the child channel already exists, forward the message along...
         if let channel = self._streams[frame.streamID] {
-            
+
             if case .close = frame.payload, let stream = self.streamMap[frame.streamID] {
                 logger.trace("Found an existing stream... state == \(stream.streamState)")
                 if stream._streamState == .writeClosed {
-                    logger.trace("We received a close message on a stream that was already half closed. Shutting down channel.")
+                    logger.trace(
+                        "We received a close message on a stream that was already half closed. Shutting down channel."
+                    )
                     channel.receiveStreamClosed(nil)
                     channel.channel.close(mode: .all, promise: nil)
                     self.streamMap.removeValue(forKey: frame.streamID)
@@ -178,7 +189,7 @@ public final class MPLEXStreamMultiplexer: ChannelInboundHandler, ChannelOutboun
                     return
                 }
             }
-            
+
             if case .reset = frame.payload {
                 logger.trace("Existing stream needs to be reset")
                 channel.receiveStreamClosed(.streamClosed)
@@ -188,19 +199,19 @@ public final class MPLEXStreamMultiplexer: ChannelInboundHandler, ChannelOutboun
                 if let stream = stream { self.onStreamEnd?(stream) }
                 return
             }
-            
+
             channel.receiveInboundFrame(frame)
             if !channel.inList {
                 self.didReadChannels.append(channel)
             }
-        /// If the frame is requesting a new stream, instantiate a new channel...
+            /// If the frame is requesting a new stream, instantiate a new channel...
         } else if case .newStream = frame.payload {
             logger.trace("Remote requesting NewStream with ID:\(frame.streamID)")
-            
+
             if self._streams[frame.streamID] != nil {
                 logger.warning("Remote Requested New Stream with Existing ID: \(frame.streamID)!!")
             }
-            
+
             let channel = MultiplexerAbstractChannel(
                 allocator: self.channel.allocator,
                 parent: self.channel,
@@ -211,7 +222,13 @@ public final class MPLEXStreamMultiplexer: ChannelInboundHandler, ChannelOutboun
             )
 
             self._streams[frame.streamID] = channel
-            let stream = MPLEXStream(channel: channel.channel, mode: .listener, id: frame.streamID.id, name: "MPLEXStream\(frame.streamID.id)", proto: "")
+            let stream = MPLEXStream(
+                channel: channel.channel,
+                mode: .listener,
+                id: frame.streamID.id,
+                name: "MPLEXStream\(frame.streamID.id)",
+                proto: ""
+            )
             self.streamMap[frame.streamID] = stream
             channel.configureInboundStream(initializer: self.inboundStreamStateInitializer)
             //channel.receiveInboundFrame(frame)
@@ -228,7 +245,7 @@ public final class MPLEXStreamMultiplexer: ChannelInboundHandler, ChannelOutboun
         }
     }
 
-    public func updateStream(channel:Channel, state:LibP2PCore.StreamState, proto:String) -> EventLoopFuture<Void> {
+    public func updateStream(channel: Channel, state: LibP2PCore.StreamState, proto: String) -> EventLoopFuture<Void> {
         self.channel.eventLoop.submit {
             if let idx = self.streamMap.first(where: { $1.channel === channel }) {
                 self.streamMap[idx.key]?.updateStreamState(state: state, protocol: proto)
@@ -237,7 +254,7 @@ public final class MPLEXStreamMultiplexer: ChannelInboundHandler, ChannelOutboun
             }
         }
     }
-    
+
     public func channelReadComplete(context: ChannelHandlerContext) {
         // Call channelReadComplete on the children until this has been propagated enough.
         while let channel = self.didReadChannels.removeFirst() {
@@ -264,7 +281,7 @@ public final class MPLEXStreamMultiplexer: ChannelInboundHandler, ChannelOutboun
     }
 
     public func write(context: ChannelHandlerContext, data: NIOAny, promise: EventLoopPromise<Void>?) {
-        /* for now just forward */
+        // for now just forward
         context.write(data, promise: promise)
     }
 
@@ -277,7 +294,8 @@ public final class MPLEXStreamMultiplexer: ChannelInboundHandler, ChannelOutboun
         context.fireChannelActive()
     }
 
-    private func activateChannels<Channels: Sequence>(_ channels: Channels, context: ChannelHandlerContext) where Channels.Element == MultiplexerAbstractChannel {
+    private func activateChannels<Channels: Sequence>(_ channels: Channels, context: ChannelHandlerContext)
+    where Channels.Element == MultiplexerAbstractChannel {
         for channel in channels {
             // We double-check the channel activity here, because it's possible action taken during
             // the activation of one of the child channels will cause the parent to close!
@@ -300,8 +318,9 @@ public final class MPLEXStreamMultiplexer: ChannelInboundHandler, ChannelOutboun
 
         context.fireChannelInactive()
     }
-    
-    private func inactivateChannels<Channels: Sequence>(_ channels: Channels, context: ChannelHandlerContext) where Channels.Element == MultiplexerAbstractChannel {
+
+    private func inactivateChannels<Channels: Sequence>(_ channels: Channels, context: ChannelHandlerContext)
+    where Channels.Element == MultiplexerAbstractChannel {
         for channel in channels {
             channel.receiveStreamClosed(nil)
         }
@@ -327,27 +346,38 @@ public final class MPLEXStreamMultiplexer: ChannelInboundHandler, ChannelOutboun
     }
 
     /// Create a new `MPLEXStreamMultiplexer`.
-    public convenience init(connection:Connection, muxedPromise:EventLoopPromise<Muxer>, supportedProtocols:[LibP2P.ProtocolRegistration]) {
-        self.init(connection: connection,
-                  supportedProtocols: supportedProtocols,
-                  inboundStreamStateInitializer: .excludesStreamID( connection.inboundMuxedChildChannelInitializer ),
-                  muxedPromise: muxedPromise
+    public convenience init(
+        connection: Connection,
+        muxedPromise: EventLoopPromise<Muxer>,
+        supportedProtocols: [LibP2P.ProtocolRegistration]
+    ) {
+        self.init(
+            connection: connection,
+            supportedProtocols: supportedProtocols,
+            inboundStreamStateInitializer: .excludesStreamID(connection.inboundMuxedChildChannelInitializer),
+            muxedPromise: muxedPromise
         )
     }
-    
+
     /// Create a new `MPLEXStreamMultiplexer`.
-    public convenience init(connection:Connection,
-                            inboundStreamInitializer: ((Channel) -> EventLoopFuture<Void>)?,
-                            muxedPromise:EventLoopPromise<Muxer>) {
-        self.init(connection: connection,
-                  inboundStreamStateInitializer: .excludesStreamID( inboundStreamInitializer ),
-                  muxedPromise: muxedPromise)
+    public convenience init(
+        connection: Connection,
+        inboundStreamInitializer: ((Channel) -> EventLoopFuture<Void>)?,
+        muxedPromise: EventLoopPromise<Muxer>
+    ) {
+        self.init(
+            connection: connection,
+            inboundStreamStateInitializer: .excludesStreamID(inboundStreamInitializer),
+            muxedPromise: muxedPromise
+        )
     }
 
-    private init(connection:Connection,
-                 supportedProtocols:[LibP2P.ProtocolRegistration] = [],
-                 inboundStreamStateInitializer: MultiplexerAbstractChannel.InboundStreamStateInitializer,
-                 muxedPromise:EventLoopPromise<Muxer>) {
+    private init(
+        connection: Connection,
+        supportedProtocols: [LibP2P.ProtocolRegistration] = [],
+        inboundStreamStateInitializer: MultiplexerAbstractChannel.InboundStreamStateInitializer,
+        muxedPromise: EventLoopPromise<Muxer>
+    ) {
         self.inboundStreamStateInitializer = inboundStreamStateInitializer
         self._connection = connection
         self.channel = connection.channel
@@ -381,7 +411,7 @@ public struct StreamClosedEvent {
     }
 }
 
-extension StreamClosedEvent: Hashable { }
+extension StreamClosedEvent: Hashable {}
 
 /// A `NIOMPLEXStreamCreatedEvent` is fired whenever an MPLEX stream is created.
 public struct NIOMPLEXStreamCreatedEvent {
@@ -392,8 +422,7 @@ public struct NIOMPLEXStreamCreatedEvent {
     }
 }
 
-extension NIOMPLEXStreamCreatedEvent: Hashable { }
-
+extension NIOMPLEXStreamCreatedEvent: Hashable {}
 
 //extension MPLEXStreamMultiplexer {
 extension MPLEXStreamMultiplexer {
@@ -420,7 +449,6 @@ extension MPLEXStreamMultiplexer {
     }
 }
 
-
 //extension MPLEXStreamMultiplexer {
 extension MPLEXStreamMultiplexer {
     /// Create a new `Channel` for a new stream initiated by this peer.
@@ -436,14 +464,18 @@ extension MPLEXStreamMultiplexer {
     ///         failed if an error occurs.
     ///     - streamStateInitializer: A callback that will be invoked to allow you to configure the
     ///         `ChannelPipeline` for the newly created channel.
-    public func createStreamChannel(promise: EventLoopPromise<Channel>?, streamID:MPLEXStreamID, _ streamStateInitializer: @escaping (Channel, MPLEXStreamID) -> EventLoopFuture<Void>) {
+    public func createStreamChannel(
+        promise: EventLoopPromise<Channel>?,
+        streamID: MPLEXStreamID,
+        _ streamStateInitializer: @escaping (Channel, MPLEXStreamID) -> EventLoopFuture<Void>
+    ) {
         self.channel.eventLoop.execute {
             let channel = MultiplexerAbstractChannel(
                 allocator: self.channel.allocator,
                 parent: self.channel,
                 multiplexer: self,
                 streamID: streamID,
-                inboundStreamStateInitializer: .includesStreamID(nil)//.excludesStreamID(nil)
+                inboundStreamStateInitializer: .includesStreamID(nil)  //.excludesStreamID(nil)
             )
             self._streams[streamID] = channel
             //self.pendingStreams[channel.channelID] = channel
@@ -457,7 +489,6 @@ extension MPLEXStreamMultiplexer {
         return streamID
     }
 }
-
 
 // MARK:- Child to parent calls
 //extension MPLEXStreamMultiplexer {
@@ -476,14 +507,16 @@ extension MPLEXStreamMultiplexer {
         //logger.trace("Child Channel Writing: Stream[\(frame.streamID.id)] -> \(Array<UInt8>(frame.messageBytes().readableBytesView).asString(base: .base16))")
         self.context.write(self.wrapOutboundOut(frame), promise: promise)
     }
-    
-    internal func childChannelWriteClosed(_ id:MPLEXStreamID) {
+
+    internal func childChannelWriteClosed(_ id: MPLEXStreamID) {
         guard let str = self.streamMap[id] else { return }
         switch str._streamState {
         case .initialized, .open, .receiveClosed:
             str._streamState = .writeClosed
         case .writeClosed, .closed, .reset:
-            print("MPLEXStreamMultiplexer::ERROR:Invalid child channel stream state transition \(str._streamState) -> .writeClosed")
+            print(
+                "MPLEXStreamMultiplexer::ERROR:Invalid child channel stream state transition \(str._streamState) -> .writeClosed"
+            )
             return
         }
     }
@@ -512,33 +545,33 @@ extension MPLEXStreamMultiplexer {
 }
 
 extension MPLEXStreamMultiplexer: Muxer {
-    var muxer:Muxer {
-        return self
+    var muxer: Muxer {
+        self
     }
-    
+
     public var streams: [LibP2PCore.Stream] {
         self.streamMap.map { $0.value }
     }
-    
-    enum Errors:Error {
+
+    enum Errors: Error {
         case unsupportedProtocol
     }
-    
-//    public func newStream(channel: Channel, proto: LibP2P.ProtocolRegistration) throws -> EventLoopFuture<_Stream> {
-//
-//    }
-    
+
+    //    public func newStream(channel: Channel, proto: LibP2P.ProtocolRegistration) throws -> EventLoopFuture<_Stream> {
+    //
+    //    }
+
     public func newStream(channel: Channel, proto: String) throws -> EventLoopFuture<_Stream> {
-//        guard let reg = self.supportedProtocols.first(where: { $0.protocolString() == proto } ) else {
-//            logger.error("Error: Asked to open stream for unsupported protocol '\(proto)'")
-//            logger.error(self.supportedProtocols.map { $0.protocolString() }.joined(separator: ", "))
-//            throw Errors.unsupportedProtocol
-//        }
-        
+        //        guard let reg = self.supportedProtocols.first(where: { $0.protocolString() == proto } ) else {
+        //            logger.error("Error: Asked to open stream for unsupported protocol '\(proto)'")
+        //            logger.error(self.supportedProtocols.map { $0.protocolString() }.joined(separator: ", "))
+        //            throw Errors.unsupportedProtocol
+        //        }
+
         let streamPromise = channel.eventLoop.makePromise(of: _Stream.self)
         let channelPromise = channel.eventLoop.makePromise(of: Channel.self)
         let streamID = nextStreamID()
-        
+
         channelPromise.futureResult.whenComplete { result in
             self.logger.trace("ChannelPromise stream[\(streamID.id)] Finished")
             switch result {
@@ -547,38 +580,49 @@ extension MPLEXStreamMultiplexer: Muxer {
                 streamPromise.fail(error)
             case .success(let ch):
                 self.logger.trace("Opened new stream[\(streamID.id)] proceeding with MSS negotiation...")
-                let stream = MPLEXStream(channel: ch, mode: .initiator, id: streamID.id, name: "MPLEXStream\(streamID.id)", proto: proto)
+                let stream = MPLEXStream(
+                    channel: ch,
+                    mode: .initiator,
+                    id: streamID.id,
+                    name: "MPLEXStream\(streamID.id)",
+                    proto: proto
+                )
                 self.streamMap[streamID] = stream
                 self.onStream?(stream)
                 streamPromise.succeed(stream)
             }
         }
-        
+
         logger.trace("Attempting to open new stream with ID:\(streamID.id)")
         /// Send the NewStream frame
-        self.channel.writeAndFlush(self.wrapOutboundOut( MPLEXFrame(streamID: streamID, payload: .newStream) ), promise: nil)
-        
+        self.channel.writeAndFlush(
+            self.wrapOutboundOut(MPLEXFrame(streamID: streamID, payload: .newStream)),
+            promise: nil
+        )
+
         self.createStreamChannel(promise: channelPromise, streamID: streamID) { chan, _ in
-            return self._connection!.outboundMuxedChildChannelInitializer(chan, protocol: proto)
+            self._connection!.outboundMuxedChildChannelInitializer(chan, protocol: proto)
         }
-        
+
         return streamPromise.futureResult
     }
-    
+
     public func openStream(_ stream: inout LibP2PCore.Stream) throws -> EventLoopFuture<Void> {
         throw NSError(domain: "Not Yet Implemented", code: 0, userInfo: nil)
     }
-    
+
     public func getStream(id: UInt64, mode: LibP2P.Mode) -> EventLoopFuture<LibP2PCore.Stream?> {
         self.channel.eventLoop.submit {
             let streamID = MPLEXStreamID(id: id, mode: mode)
             return self.streamMap[streamID]
         }
     }
-    
-    public func removeStream(channel:Channel) {
+
+    public func removeStream(channel: Channel) {
         if let str = self.streamMap.first(where: { $0.value.channel === channel }) {
-            self.logger.info("Attempting to remove stream Stream[\(str.value.id)][\(str.value.protocolCodec)][\(str.value.name ?? "``")][\(str.value.mode)]")
+            self.logger.info(
+                "Attempting to remove stream Stream[\(str.value.id)][\(str.value.protocolCodec)][\(str.value.name ?? "``")][\(str.value.mode)]"
+            )
             str.value.channel.close(mode: .all, promise: nil)
             self.streamMap.removeValue(forKey: str.key)
             // Instantiate our StreamID
@@ -587,13 +631,17 @@ extension MPLEXStreamMultiplexer: Muxer {
             if (self._streams.removeValue(forKey: streamID)) != nil {
                 // Send a reset frame...
                 //self.channel.writeAndFlush(self.wrapOutboundOut( MPLEXFrame(streamID: streamID, payload: .reset) ), promise: nil)
-                self.logger.info("Removed Stream[\(str.value.id)][\(str.value.protocolCodec)][\(str.value.name ?? "``")][\(str.value.mode)]")
+                self.logger.info(
+                    "Removed Stream[\(str.value.id)][\(str.value.protocolCodec)][\(str.value.name ?? "``")][\(str.value.mode)]"
+                )
             } else {
-                self.logger.warning("Failed to remove Stream[\(str.value.id)][\(str.value.protocolCodec)][\(str.value.name ?? "``")][\(str.value.mode)]")
+                self.logger.warning(
+                    "Failed to remove Stream[\(str.value.id)][\(str.value.protocolCodec)][\(str.value.name ?? "``")][\(str.value.mode)]"
+                )
             }
         } else {
             self.logger.warning("Failed to find requested stream to remove")
         }
     }
-    
+
 }

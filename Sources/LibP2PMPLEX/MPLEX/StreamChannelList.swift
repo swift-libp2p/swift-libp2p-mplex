@@ -1,5 +1,19 @@
 //===----------------------------------------------------------------------===//
 //
+// This source file is part of the swift-libp2p open source project
+//
+// Copyright (c) 2022-2025 swift-libp2p project authors
+// Licensed under MIT
+//
+// See LICENSE for license information
+// See CONTRIBUTORS for the list of swift-libp2p project authors
+//
+// SPDX-License-Identifier: MIT
+//
+//===----------------------------------------------------------------------===//
+//
+//===----------------------------------------------------------------------===//
+//
 // This source file is part of the SwiftNIO open source project
 //
 // Copyright (c) 2019 Apple Inc. and the SwiftNIO project authors
@@ -11,12 +25,6 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 //===----------------------------------------------------------------------===//
-//
-//  StreamChannelList.swift
-//
-//
-//  Modified by Brandon Toms on 5/1/22.
-//
 
 /// A linked list for storing MultiplexerAbstractChannels.
 ///
@@ -39,9 +47,8 @@ struct MPLEXStreamChannelListNode {
 
     fileprivate var state: ListState = .notInList
 
-    internal init() { }
+    internal init() {}
 }
-
 
 extension MPLEXStreamChannelList {
     /// Append an element to the linked list.
@@ -85,10 +92,9 @@ extension MPLEXStreamChannelList {
     }
 
     mutating func removeAll() {
-        while self.removeFirst() != nil { }
+        while self.removeFirst() != nil {}
     }
 }
-
 
 // MARK:- IntrusiveLinkedListElement helpers.
 extension MPLEXStreamChannel {

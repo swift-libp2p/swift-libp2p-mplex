@@ -1,16 +1,23 @@
+//===----------------------------------------------------------------------===//
 //
-//  MPLEXFrameCoders.swift
-//  
+// This source file is part of the swift-libp2p open source project
 //
-//  Created by Brandon Toms on 3/2/22.
+// Copyright (c) 2022-2025 swift-libp2p project authors
+// Licensed under MIT
 //
+// See LICENSE for license information
+// See CONTRIBUTORS for the list of swift-libp2p project authors
+//
+// SPDX-License-Identifier: MIT
+//
+//===----------------------------------------------------------------------===//
 
 import LibP2P
 import VarInt
 
 internal class MPLEXFrameEncoder: MessageToByteEncoder {
     public typealias OutboundIn = MPLEXFrame
-    
+
     public init() {}
 
     public func encode(data: MPLEXFrame, out: inout ByteBuffer) throws {
@@ -22,12 +29,12 @@ internal class MPLEXFrameEncoder: MessageToByteEncoder {
     }
 }
 
-internal final class MPLEXFrameDecoder:ByteToMessageDecoder {
+internal final class MPLEXFrameDecoder: ByteToMessageDecoder {
     public typealias InboundOut = MPLEXFrame
 
     private var headerLength: UInt64? = nil
-    private var msgLength:UInt64? = nil
-    
+    private var msgLength: UInt64? = nil
+
     public init() {}
 
     public func decode(context: ChannelHandlerContext, buffer: inout ByteBuffer) throws -> DecodingState {
@@ -39,7 +46,7 @@ internal final class MPLEXFrameDecoder:ByteToMessageDecoder {
             // Not enough bytes to read the MPLEXHeader. Ask for more.
             return .needMoreData
         }
-        
+
         if self.msgLength == nil {
             self.msgLength = buffer.readVarint()
         }
@@ -53,12 +60,12 @@ internal final class MPLEXFrameDecoder:ByteToMessageDecoder {
             // not enough bytes in the buffer to satisfy the read. Ask for more.
             return .needMoreData
         }
-        
+
         // Contruct the Flag
         guard let flag = MPLEXFlag(rawValue: headerLength & 7) else { throw Errors.invalidMPLEXFlag }
         // Construct the MPLEXFrame
         let streamID = MPLEXStreamID(id: headerLength >> 3, flag: flag)
-        let out:MPLEXFrame
+        let out: MPLEXFrame
         switch flag {
         case .NewStream:
             out = MPLEXFrame(
@@ -68,26 +75,26 @@ internal final class MPLEXFrameDecoder:ByteToMessageDecoder {
         case .MessageReceiver, .MessageInitiator:
             out = MPLEXFrame(
                 streamID: streamID,
-                payload: .inboundData( messageBytes )
+                payload: .inboundData(messageBytes)
             )
-            
+
         case .CloseReceiver, .CloseInitiator:
             out = MPLEXFrame(
                 streamID: streamID,
                 payload: .close
             )
-        
+
         case .ResetReceiver, .ResetInitiator:
             out = MPLEXFrame(
                 streamID: streamID,
                 payload: .reset
             )
         }
-        
+
         // We don't need the length now.
         self.headerLength = nil
         self.msgLength = nil
-        
+
         // Send the message's bytes up the pipeline to the next handler.
         context.fireChannelRead(self.wrapInboundOut(out))
 
@@ -95,17 +102,21 @@ internal final class MPLEXFrameDecoder:ByteToMessageDecoder {
         return .continue
     }
 
-    public func decodeLast(context: ChannelHandlerContext, buffer: inout ByteBuffer, seenEOF: Bool) throws -> DecodingState {
-        return try decode(context: context, buffer: &buffer)
+    public func decodeLast(
+        context: ChannelHandlerContext,
+        buffer: inout ByteBuffer,
+        seenEOF: Bool
+    ) throws -> DecodingState {
+        try decode(context: context, buffer: &buffer)
     }
-    
-    public enum Errors:Error {
+
+    public enum Errors: Error {
         case invalidMPLEXFlag
     }
 }
 
-fileprivate extension ByteBuffer {
-    mutating func readVarint() -> UInt64? {
+extension ByteBuffer {
+    fileprivate mutating func readVarint() -> UInt64? {
         var value: UInt64 = 0
         var shift: UInt64 = 0
         let initialReadIndex = self.readerIndex
@@ -128,10 +139,10 @@ fileprivate extension ByteBuffer {
         }
     }
 
-    mutating func writeVarint(_ v: Int) {
+    fileprivate mutating func writeVarint(_ v: Int) {
         var value = v
-        while (true) {
-            if ((value & ~0x7F) == 0) {
+        while true {
+            if (value & ~0x7F) == 0 {
                 // final byte
                 self.writeInteger(UInt8(truncatingIfNeeded: value))
                 return
@@ -142,8 +153,6 @@ fileprivate extension ByteBuffer {
         }
     }
 }
-
-
 
 ///// TODO: This should be a byteToMessageDecoder
 //public final class MPLEXFrameDecoder:ChannelInboundHandler {

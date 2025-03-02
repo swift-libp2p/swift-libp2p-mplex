@@ -1,5 +1,19 @@
 //===----------------------------------------------------------------------===//
 //
+// This source file is part of the swift-libp2p open source project
+//
+// Copyright (c) 2022-2025 swift-libp2p project authors
+// Licensed under MIT
+//
+// See LICENSE for license information
+// See CONTRIBUTORS for the list of swift-libp2p project authors
+//
+// SPDX-License-Identifier: MIT
+//
+//===----------------------------------------------------------------------===//
+//
+//===----------------------------------------------------------------------===//
+//
 // This source file is part of the SwiftNIO open source project
 //
 // Copyright (c) 2017-2021 Apple Inc. and the SwiftNIO project authors
@@ -11,12 +25,6 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 //===----------------------------------------------------------------------===//
-//
-//  MPLEXErrorCode.swift
-//
-//
-//  Modified by Brandon Toms on 5/1/22.
-//
 
 import NIOCore
 
@@ -25,7 +33,7 @@ public struct MPLEXErrorCode {
     /// The underlying network representation of the error code.
     public var networkCode: Int {
         get {
-            return Int(self._networkCode)
+            Int(self._networkCode)
         }
         set {
             self._networkCode = UInt32(newValue)
@@ -85,9 +93,9 @@ public struct MPLEXErrorCode {
 
 }
 
-extension MPLEXErrorCode: Equatable { }
+extension MPLEXErrorCode: Equatable {}
 
-extension MPLEXErrorCode: Hashable { }
+extension MPLEXErrorCode: Hashable {}
 
 extension MPLEXErrorCode: CustomDebugStringConvertible {
     public var debugDescription: String {
@@ -121,28 +129,28 @@ extension MPLEXErrorCode: CustomDebugStringConvertible {
     }
 }
 
-public extension UInt32 {
+extension UInt32 {
     /// Create a 32-bit integer corresponding to the given `MPLEXErrorCode`.
-    init(mplexErrorCode code: MPLEXErrorCode) {
+    public init(mplexErrorCode code: MPLEXErrorCode) {
         self = code._networkCode
     }
 }
 
-public extension Int {
+extension Int {
     /// Create an integer corresponding to the given `MPLEXErrorCode`.
-    init(mplexErrorCode code: MPLEXErrorCode) {
+    public init(mplexErrorCode code: MPLEXErrorCode) {
         self = code.networkCode
     }
 }
 
-public extension ByteBuffer {
+extension ByteBuffer {
     /// Serializes a `MPLEXErrorCode` into a `ByteBuffer` in the appropriate endianness
     /// for use in MPLEX.
     ///
     /// - parameters:
     ///     - code: The `MPLEXErrorCode` to serialize.
     /// - returns: The number of bytes written.
-    mutating func write(mplexErrorCode code: MPLEXErrorCode) -> Int {
-        return self.writeInteger(UInt32(mplexErrorCode: code))
+    public mutating func write(mplexErrorCode code: MPLEXErrorCode) -> Int {
+        self.writeInteger(UInt32(mplexErrorCode: code))
     }
 }

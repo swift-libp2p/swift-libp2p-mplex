@@ -1,57 +1,71 @@
+//===----------------------------------------------------------------------===//
 //
-//  MPLEXStream.swift
-//  
+// This source file is part of the swift-libp2p open source project
 //
-//  Created by Brandon Toms on 5/12/21.
+// Copyright (c) 2022-2025 swift-libp2p project authors
+// Licensed under MIT
 //
+// See LICENSE for license information
+// See CONTRIBUTORS for the list of swift-libp2p project authors
+//
+// SPDX-License-Identifier: MIT
+//
+//===----------------------------------------------------------------------===//
 
 import LibP2P
 
 /// A BasicStream manages a specific protocol Stream over a Connection. Non Muxed Stream. Only one BasicStream per Connection.
-public class MPLEXStream:_Stream {
+public class MPLEXStream: _Stream {
     //public private(set) var streamState:LibP2PCore.StreamState
     public var _streamState: LibP2PCore.StreamState
     public var streamState: LibP2PCore.StreamState {
         _streamState
     }
-    
+
     //public private(set) var connection: Connection?
     public weak var _connection: Connection?
-    public var connection:Connection? {
+    public var connection: Connection? {
         _connection
     }
-    
-    public let channel:Channel
+
+    public let channel: Channel
     public let id: UInt64
     public let name: String?
-    public let mode:LibP2P.Mode
+    public let mode: LibP2P.Mode
     public private(set) var protocolCodec: String
-    
+
     public var direction: ConnectionStats.Direction {
         self.mode == .listener ? .inbound : .outbound
     }
-    
-    private let streamID:MPLEXStreamID
-//    public  lazy var eventLoop:EventLoop = {
-//        channel.eventLoop
-//    }()
-    
-    public required init(channel: Channel, mode: LibP2P.Mode, id: UInt64, name: String?, proto: String, streamState: LibP2PCore.StreamState = .initialized) {
+
+    private let streamID: MPLEXStreamID
+    //    public  lazy var eventLoop:EventLoop = {
+    //        channel.eventLoop
+    //    }()
+
+    public required init(
+        channel: Channel,
+        mode: LibP2P.Mode,
+        id: UInt64,
+        name: String?,
+        proto: String,
+        streamState: LibP2PCore.StreamState = .initialized
+    ) {
         self.channel = channel
         self.mode = mode
         self.id = id
         self.name = name
         self._streamState = streamState
         self.protocolCodec = proto
-        
+
         self.streamID = MPLEXStreamID(id: id, mode: mode)
-        
+
         self.on = nil
         //print("Stream[\(id)]::Initializing")
     }
-    
+
     //deinit {
-        //print("Stream[\(id)]::Deinitializing")
+    //print("Stream[\(id)]::Deinitializing")
     //}
 
     /// Main Delegate/Callback Function
@@ -68,13 +82,15 @@ public class MPLEXStream:_Stream {
     public func write(_ buffer: ByteBuffer) -> EventLoopFuture<Void> {
         //let promise = self.channel.eventLoop.makePromise(of: Void.self)
         // Prepend our Protocol Header Stream ID / FLAG
-        
+
         //print("Stream[\(streamID.id)] -> Attempting to write to channel")
         guard self.channel.isActive && self.channel.isWritable else {
             self._streamState = .reset
             return self.channel.eventLoop.makeFailedFuture(Errors.streamNotWritable)
         }
-        guard self.streamState == .open else { return self.channel.eventLoop.makeFailedFuture(Errors.streamNotWritable) }
+        guard self.streamState == .open else {
+            return self.channel.eventLoop.makeFailedFuture(Errors.streamNotWritable)
+        }
         // Write it out
         self.channel.writeAndFlush(NIOAny(RawResponse(payload: buffer)), promise: nil)
         //self.channel.writeAndFlush(NIOAny(MPLEXFrame(streamID: streamID, payload: .outboundData(buffer))), promise: nil)
@@ -107,10 +123,10 @@ public class MPLEXStream:_Stream {
         } else {
             print("Stream[\(streamID.id)] -> Skipping Reset Message, Channel already closed...")
         }
-//        return promise.futureResult.always { _ in
-//            print("Stream[\(self.streamID.id)] -> Reseting")
-//            self.channel.close(mode: .all, promise: nil)
-//        }
+        //        return promise.futureResult.always { _ in
+        //            print("Stream[\(self.streamID.id)] -> Reseting")
+        //            self.channel.close(mode: .all, promise: nil)
+        //        }
         self._streamState = .reset
         self.channel.close(mode: .all, promise: promise)
         return promise.futureResult
@@ -122,14 +138,15 @@ public class MPLEXStream:_Stream {
         print("TODO: Resume / Kick off our Stream")
         return self.channel.eventLoop.makeSucceededVoidFuture()
     }
-    
-    internal func updateStreamState(state:StreamState, protocol:String) {
+
+    internal func updateStreamState(state: StreamState, protocol: String) {
         // Update our state if it's a valid transition...
         if state.rawValue > self._streamState.rawValue {
             //print("Stream[\(streamID.id)] -> Updating state from \(self._streamState) -> \(state)")
             self._streamState = state
-        } //else { print("Stream[\(streamID.id)] -> Skipping invalid state change from \(self._streamState) -> \(state)") }
-        
+        }
+        //else { print("Stream[\(streamID.id)] -> Skipping invalid state change from \(self._streamState) -> \(state)") }
+
         // Update our protocol if it hasn't been set yet
         guard self.protocolCodec == "" else {
             //print("Stream[\(streamID.id)] -> Protocol Codec can't be changed once set. Skipping protocol change request from `\(self.protocolCodec)` -> `\(`protocol`)`")
@@ -138,8 +155,8 @@ public class MPLEXStream:_Stream {
         //print("Stream[\(streamID.id)] -> Updating protocol from \(self.protocolCodec) -> \(`protocol`)")
         self.protocolCodec = `protocol`
     }
-    
-    public enum Errors:Error {
+
+    public enum Errors: Error {
         case streamNotWritable
     }
 }
