@@ -27,30 +27,31 @@
 //===----------------------------------------------------------------------===//
 
 import NIOCore
+import NIOConcurrencyHelpers
 
 /// An MPLEX error code.
-public struct MPLEXErrorCode {
+public struct MPLEXErrorCode: Sendable {
     /// The underlying network representation of the error code.
     public var networkCode: Int {
         get {
-            Int(self._networkCode)
+            Int(self._networkCode.withLockedValue { $0 })
         }
         set {
-            self._networkCode = UInt32(newValue)
+            self._networkCode.withLockedValue { $0 = UInt32(newValue) }
         }
     }
 
     /// The underlying network representation of the error code.
-    fileprivate var _networkCode: UInt32
+    fileprivate let _networkCode: NIOLockedValueBox<UInt32>
 
     /// Create a MPELX error code from the given network value.
     public init(networkCode: Int) {
-        self._networkCode = UInt32(networkCode)
+        self._networkCode = .init( UInt32(networkCode) )
     }
 
     /// Create a `MPLEXErrorCode` from the 32-bit integer it corresponds to.
     internal init(_ networkInteger: UInt32) {
-        self._networkCode = networkInteger
+        self._networkCode = .init( networkInteger )
     }
 
     /// The associated condition is not a result of an error. For example,
@@ -93,9 +94,17 @@ public struct MPLEXErrorCode {
 
 }
 
-extension MPLEXErrorCode: Equatable {}
+extension MPLEXErrorCode: Equatable {
+    public static func == (lhs: MPLEXErrorCode, rhs: MPLEXErrorCode) -> Bool {
+        lhs.networkCode == rhs.networkCode
+    }
+}
 
-extension MPLEXErrorCode: Hashable {}
+extension MPLEXErrorCode: Hashable {
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(self.networkCode)
+    }
+}
 
 extension MPLEXErrorCode: CustomDebugStringConvertible {
     public var debugDescription: String {
@@ -132,7 +141,7 @@ extension MPLEXErrorCode: CustomDebugStringConvertible {
 extension UInt32 {
     /// Create a 32-bit integer corresponding to the given `MPLEXErrorCode`.
     public init(mplexErrorCode code: MPLEXErrorCode) {
-        self = code._networkCode
+        self = code._networkCode.withLockedValue { $0 }
     }
 }
 

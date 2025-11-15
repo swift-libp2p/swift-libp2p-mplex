@@ -130,12 +130,12 @@ private enum StreamChannelState {
     }
 }
 
-public struct MPLEXFrame: Equatable {
+public struct MPLEXFrame: Equatable, Sendable {
     /// The streams ID
-    var streamID: MPLEXStreamID
+    let streamID: MPLEXStreamID
 
     /// The payload of this frame
-    var payload: FramePayload
+    let payload: FramePayload
 
     enum FramePayload: Equatable {
         case inboundData(ByteBuffer)
