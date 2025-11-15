@@ -130,12 +130,12 @@ private enum StreamChannelState {
     }
 }
 
-public struct MPLEXFrame: Equatable {
+public struct MPLEXFrame: Equatable, Sendable {
     /// The streams ID
-    var streamID: MPLEXStreamID
+    let streamID: MPLEXStreamID
 
     /// The payload of this frame
-    var payload: FramePayload
+    let payload: FramePayload
 
     enum FramePayload: Equatable {
         case inboundData(ByteBuffer)
@@ -230,7 +230,7 @@ private enum MPLEXStreamData {
     }
 }
 
-final class MPLEXStreamChannel: Channel, ChannelCore {
+final class MPLEXStreamChannel: Channel, ChannelCore, @unchecked Sendable {
     /// The stream data type of the channel.
     private let streamDataType: MPLEXStreamDataType
 
@@ -243,27 +243,18 @@ final class MPLEXStreamChannel: Channel, ChannelCore {
         parent: Channel,
         multiplexer: MPLEXStreamMultiplexer,
         streamID: MPLEXStreamID?,
-        //targetWindowSize: Int32,
-        //outboundBytesHighWatermark: Int,
-        //outboundBytesLowWatermark: Int,
         streamDataType: MPLEXStreamDataType
     ) {
         self.allocator = allocator
         self.closePromise = parent.eventLoop.makePromise()
-        //self.localAddress = parent.localAddress
-        //self.remoteAddress = parent.remoteAddress
         self.parent = parent
         self.eventLoop = parent.eventLoop
         self.streamID = streamID
         self.multiplexer = multiplexer
-        //self.windowManager = InboundWindowManager(targetSize: Int32(targetWindowSize))
         self._isActiveAtomic = .makeAtomic(value: false)
         self._isWritable = .makeAtomic(value: true)
         self.state = .idle
         self.streamDataType = streamDataType
-        //self.writabilityManager = MPLEXStreamChannelFlowController(highWatermark: outboundBytesHighWatermark,
-        //                                                      lowWatermark: outboundBytesLowWatermark,
-        //                                                      parentIsWritable: parent.isWritable)
 
         // To begin with we initialize autoRead to false, but we are going to fetch it from our parent before we
         // go much further.
@@ -837,15 +828,13 @@ extension MPLEXStreamChannel {
         while self.pendingReads.count > 0 {
             let frame = self.pendingReads.removeFirst()
 
-            let anyStreamData: NIOAny
-            //            let dataLength: Int?
+            let anyStreamData: ByteBuffer
 
             switch self.streamDataType {
             case .frame:
-                //anyStreamData = NIOAny(frame)
                 if frame.payload.buffer.readableBytes > 0 {
                     //print("MPLEXStreamChannel::DeliverPendingReads -> frame to buffer")
-                    anyStreamData = NIOAny(frame.payload.buffer)
+                    anyStreamData = frame.payload.buffer
                 } else {
                     print(
                         "MPLEXFrame[\(streamID?.id ?? 111)]::DeliverPendingReads -> Warning: Dropping frame with empty buffer"
@@ -860,29 +849,28 @@ extension MPLEXStreamChannel {
                     print("MPLEXFrame[\(streamID?.id ?? 111)]::Warning: Dropping \(frame.payload)")
                     continue
                 case .inboundData(let buffer):
-                    anyStreamData = NIOAny(buffer)
+                    anyStreamData = buffer
                 default:
                     continue
                 }
-            //anyStreamData = NIOAny(frame.payload.buffer)
             }
 
-            //            switch frame.payload {
-            //            case .data(let data):
-            //                dataLength = data.payload.readableBytes
-            //            default:
-            //                dataLength = nil
-            //            }
+            //switch frame.payload {
+            //case .data(let data):
+            //    dataLength = data.payload.readableBytes
+            //default:
+            //    dataLength = nil
+            //}
 
             self.pipeline.fireChannelRead(anyStreamData)
 
-            //            if let size = dataLength, let increment = self.windowManager.bufferedFrameEmitted(size: size) {
-            //                // To have a pending read, we must have a stream ID.
-            //                let frame = MPLEXFrame(streamID: self.streamID!, payload: .windowUpdate(windowSizeIncrement: increment))
-            //                self.receiveOutboundFrame(frame, promise: nil)
-            //                // This flush should really go away, but we need it for now until we sort out window management.
-            //                self.multiplexer.childChannelFlush()
-            //            }
+            //if let size = dataLength, let increment = self.windowManager.bufferedFrameEmitted(size: size) {
+            //    // To have a pending read, we must have a stream ID.
+            //    let frame = MPLEXFrame(streamID: self.streamID!, payload: .windowUpdate(windowSizeIncrement: increment))
+            //    self.receiveOutboundFrame(frame, promise: nil)
+            //    // This flush should really go away, but we need it for now until we sort out window management.
+            //    self.multiplexer.childChannelFlush()
+            //}
         }
         self.pipeline.fireChannelReadComplete()
     }

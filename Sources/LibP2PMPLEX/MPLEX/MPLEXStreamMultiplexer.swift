@@ -43,7 +43,7 @@ internal enum MPLEXFlag: UInt64 {
     case ResetInitiator = 6
 }
 
-public struct MPLEXStreamID: Hashable {
+public struct MPLEXStreamID: Hashable, Sendable {
     let id: UInt64
     let initiator: Bool
 
@@ -75,7 +75,7 @@ public struct MPLEXStreamID: Hashable {
 /// on `MPLEXFrame` objects as their base communication atom, as opposed to the regular
 /// NIO `SelectableChannel` objects which use `ByteBuffer` and `IOData`.
 public final class MPLEXStreamMultiplexer: ChannelInboundHandler, ChannelOutboundHandler, MessageExtractableHandler {
-    public static var protocolCodec: String = "/mplex/6.7.0"
+    public static let protocolCodec: String = "/mplex/6.7.0"
 
     public typealias InboundIn = MPLEXFrame
     public typealias InboundOut = MPLEXFrame
@@ -169,7 +169,7 @@ public final class MPLEXStreamMultiplexer: ChannelInboundHandler, ChannelOutboun
 
             if case .close = frame.payload, let stream = self.streamMap[frame.streamID] {
                 logger.trace("Found an existing stream... state == \(stream.streamState)")
-                if stream._streamState == .writeClosed {
+                if stream._streamState.withLockedValue({ $0 }) == .writeClosed {
                     logger.trace(
                         "We received a close message on a stream that was already half closed. Shutting down channel."
                     )
@@ -184,7 +184,7 @@ public final class MPLEXStreamMultiplexer: ChannelInboundHandler, ChannelOutboun
                     //context.writeAndFlush( self.wrapOutboundOut(MPLEXFrame(streamID: frame.streamID, payload: .close)) , promise: nil)
                     logger.trace("Alerting ChildChannel of close")
                     channel.receiveStreamClosed(nil)
-                    stream._streamState = .receiveClosed
+                    stream._streamState.withLockedValue { $0 = .receiveClosed }
                     self.onStreamEnd?(stream)
                     return
                 }
@@ -510,12 +510,12 @@ extension MPLEXStreamMultiplexer {
 
     internal func childChannelWriteClosed(_ id: MPLEXStreamID) {
         guard let str = self.streamMap[id] else { return }
-        switch str._streamState {
+        switch str._streamState.withLockedValue({ $0 }) {
         case .initialized, .open, .receiveClosed:
-            str._streamState = .writeClosed
+            str._streamState.withLockedValue { $0 = .writeClosed }
         case .writeClosed, .closed, .reset:
             print(
-                "MPLEXStreamMultiplexer::ERROR:Invalid child channel stream state transition \(str._streamState) -> .writeClosed"
+                "MPLEXStreamMultiplexer::ERROR:Invalid child channel stream state transition \(str.streamState) -> .writeClosed"
             )
             return
         }
