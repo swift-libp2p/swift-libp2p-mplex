@@ -243,27 +243,18 @@ final class MPLEXStreamChannel: Channel, ChannelCore, @unchecked Sendable {
         parent: Channel,
         multiplexer: MPLEXStreamMultiplexer,
         streamID: MPLEXStreamID?,
-        //targetWindowSize: Int32,
-        //outboundBytesHighWatermark: Int,
-        //outboundBytesLowWatermark: Int,
         streamDataType: MPLEXStreamDataType
     ) {
         self.allocator = allocator
         self.closePromise = parent.eventLoop.makePromise()
-        //self.localAddress = parent.localAddress
-        //self.remoteAddress = parent.remoteAddress
         self.parent = parent
         self.eventLoop = parent.eventLoop
         self.streamID = streamID
         self.multiplexer = multiplexer
-        //self.windowManager = InboundWindowManager(targetSize: Int32(targetWindowSize))
         self._isActiveAtomic = .makeAtomic(value: false)
         self._isWritable = .makeAtomic(value: true)
         self.state = .idle
         self.streamDataType = streamDataType
-        //self.writabilityManager = MPLEXStreamChannelFlowController(highWatermark: outboundBytesHighWatermark,
-        //                                                      lowWatermark: outboundBytesLowWatermark,
-        //                                                      parentIsWritable: parent.isWritable)
 
         // To begin with we initialize autoRead to false, but we are going to fetch it from our parent before we
         // go much further.
