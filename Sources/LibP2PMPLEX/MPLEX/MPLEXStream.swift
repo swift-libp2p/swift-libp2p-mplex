@@ -33,12 +33,12 @@ public final class MPLEXStream: _Stream {
     public let id: UInt64
     public let name: String?
     public let mode: LibP2P.Mode
-    
+
     private let _protocolCodec: NIOLockedValueBox<String>
     public var protocolCodec: String {
         _protocolCodec.withLockedValue { $0 }
     }
-    
+
     public var direction: ConnectionStats.Direction {
         self.mode == .listener ? .inbound : .outbound
     }
@@ -151,7 +151,7 @@ public final class MPLEXStream: _Stream {
 
     internal func updateStreamState(state: StreamState, protocol: String) {
         // Update our state if it's a valid transition...
-        if state.rawValue > self._streamState.withLockedValue({$0}).rawValue {
+        if state.rawValue > self._streamState.withLockedValue({ $0 }).rawValue {
             //print("Stream[\(streamID.id)] -> Updating state from \(self._streamState) -> \(state)")
             self._streamState.withLockedValue { $0 = state }
         }

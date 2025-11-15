@@ -26,8 +26,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-import NIOCore
 import NIOConcurrencyHelpers
+import NIOCore
 
 /// An MPLEX error code.
 public struct MPLEXErrorCode: Sendable {
@@ -46,12 +46,12 @@ public struct MPLEXErrorCode: Sendable {
 
     /// Create a MPELX error code from the given network value.
     public init(networkCode: Int) {
-        self._networkCode = .init( UInt32(networkCode) )
+        self._networkCode = .init(UInt32(networkCode))
     }
 
     /// Create a `MPLEXErrorCode` from the 32-bit integer it corresponds to.
     internal init(_ networkInteger: UInt32) {
-        self._networkCode = .init( networkInteger )
+        self._networkCode = .init(networkInteger)
     }
 
     /// The associated condition is not a result of an error. For example,
