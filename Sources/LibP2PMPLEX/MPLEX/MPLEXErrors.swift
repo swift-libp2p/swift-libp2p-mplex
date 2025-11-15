@@ -138,9 +138,9 @@ public enum NIOMPLEXErrors {
     /// meaningfully be `Equatable`, so they aren't. There's also no additional location information: that's
     /// provided by the base error.
     public struct StreamError: Error {
-        private final class Storage {
-            var streamID: MPLEXStreamID
-            var baseError: Error
+        private final class Storage: Sendable {
+            let streamID: MPLEXStreamID
+            let baseError: Error
 
             init(streamID: MPLEXStreamID, baseError: Error) {
                 self.baseError = baseError
@@ -157,29 +157,15 @@ public enum NIOMPLEXErrors {
 
         private var storage: Storage
 
-        private mutating func copyStorageIfNotUniquelyReferenced() {
-            if !isKnownUniquelyReferenced(&self.storage) {
-                self.storage = self.storage.copy()
-            }
-        }
-
         public var baseError: Error {
             get {
                 self.storage.baseError
-            }
-            set {
-                self.copyStorageIfNotUniquelyReferenced()
-                self.storage.baseError = newValue
             }
         }
 
         public var streamID: MPLEXStreamID {
             get {
                 self.storage.streamID
-            }
-            set {
-                self.copyStorageIfNotUniquelyReferenced()
-                self.storage.streamID = newValue
             }
         }
 
