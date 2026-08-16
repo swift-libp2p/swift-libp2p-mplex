@@ -21,11 +21,23 @@ internal class MPLEXFrameEncoder: MessageToByteEncoder {
     public init() {}
 
     public func encode(data: MPLEXFrame, out: inout ByteBuffer) throws {
-        let payload = data.messageBytes()
-        let length = putUVarInt(UInt64(payload.readableBytes))
         let header = putUVarInt(data.streamID.id << 3 | data.flag.rawValue)
-        out.writeBytes(header + length)
-        out.writeBytes(payload.readableBytesView)
+        var payload = data.messageBytes()
+
+        // The mplex spec caps a single frame's payload at 1 MiB. Split larger payloads across
+        // multiple frames — each sharing the same header (stream ID + flag) — so we never emit a
+        // frame that a spec-compliant peer would reset us for. Data on a stream is a byte stream,
+        // so message boundaries carry no semantics and the peer simply reassembles the bytes.
+        let maxChunk = Int(MPLEXFrameDecoder.maxMessageSize)
+
+        // Emit at least one frame, even for empty (control) payloads such as close/reset/newStream.
+        repeat {
+            // `min` keeps the length within bounds, so this force-unwrap is safe.
+            let chunk = payload.readSlice(length: min(payload.readableBytes, maxChunk))!
+            let length = putUVarInt(UInt64(chunk.readableBytes))
+            out.writeBytes(header + length)
+            out.writeBytes(chunk.readableBytesView)
+        } while payload.readableBytes > 0
     }
 }
 
