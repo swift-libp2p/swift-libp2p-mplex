@@ -167,6 +167,18 @@ public final class MPLEXStreamMultiplexer: ChannelInboundHandler, ChannelOutboun
         /// If the child channel already exists, forward the message along...
         if let channel = self._streams[frame.streamID] {
 
+            // The peer is trying to (re)open a stream ID we already have. ID reuse is undefined
+            // per spec; reject it by resetting the existing stream.
+            if case .newStream = frame.payload {
+                logger.warning("Peer sent NewStream for existing ID \(frame.streamID); resetting existing stream")
+                channel.receiveStreamClosed(.streamClosed)
+                channel.channel.close(mode: .all, promise: nil)
+                let existing = self.streamMap.removeValue(forKey: frame.streamID)
+                self._streams.removeValue(forKey: frame.streamID)
+                if let existing { self.onStreamEnd?(existing) }
+                return
+            }
+
             if case .close = frame.payload, let stream = self.streamMap[frame.streamID] {
                 logger.trace("Found an existing stream... state == \(stream.streamState)")
                 if stream._streamState.withLockedValue({ $0 }) == .writeClosed {
