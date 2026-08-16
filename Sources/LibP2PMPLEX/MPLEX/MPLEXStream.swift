@@ -110,15 +110,26 @@ public final class MPLEXStream: _Stream {
 
     /// Sends a close stream message to our remote peer, requesting this Stream be closed.
     /// - Note: Because there can be multiple MPLEXStreams over a single Connection, this will NOT close the underlying Connection.
+    /// - Parameter gracefully: When `true`, our write direction is closed with a Close frame,
+    ///   leaving the read direction open (half-close) until the peer also closes. When `false`,
+    ///   the stream is reset immediately, discarding any in-flight data in both directions.
     public func close(gracefully: Bool) -> EventLoopFuture<Void> {
+        guard gracefully else {
+            // A non-graceful close is an abrupt reset.
+            return self.reset()
+        }
+
         switch self._streamState.withLockedValue({ $0 }) {
-        case .initialized, .open:
-            self._streamState.withLockedValue { $0 = .writeClosed }
-        case .receiveClosed:
-            self._streamState.withLockedValue { $0 = .closed }
+        case .initialized, .open, .receiveClosed:
+            break
         case .writeClosed, .closed, .reset:
+            // Our write side is already closed (or the stream is gone); nothing to do.
             return self.channel.eventLoop.makeSucceededVoidFuture()
         }
+
+        // Close our write side. The multiplexer owns the stream-state transition (and completes
+        // full teardown once both directions are closed) via `childChannelWriteClosed`, so we do
+        // not mutate the state here.
         self.channel.close(mode: .all, promise: nil)
         return self.channel.eventLoop.makeSucceededVoidFuture()
     }
