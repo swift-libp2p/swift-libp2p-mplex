@@ -751,7 +751,9 @@ final class MPLEXStreamChannel: Channel, ChannelCore, @unchecked Sendable {
         if self.state == .active {
             //print("MPLEXFrame[\(self.streamID!.id)]::ErrorEncountered -> Sending Reset Frame")
             // We should have a stream ID here, force-unwrap is safe.
-            let resetFrame = MPLEXFrame(streamID: self.streamID!, payload: .close)
+            // An error is an abnormal termination, so we reset the stream rather than
+            // performing a graceful (half-)close.
+            let resetFrame = MPLEXFrame(streamID: self.streamID!, payload: .reset)
             self.receiveOutboundFrame(resetFrame, promise: nil)
             self.multiplexer.childChannelFlush()
         }
