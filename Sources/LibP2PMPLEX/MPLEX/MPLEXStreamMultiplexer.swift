@@ -221,10 +221,6 @@ public final class MPLEXStreamMultiplexer: ChannelInboundHandler, ChannelOutboun
         } else if case .newStream = frame.payload {
             logger.trace("Remote requesting NewStream with ID:\(frame.streamID)")
 
-            if self._streams[frame.streamID] != nil {
-                logger.warning("Remote Requested New Stream with Existing ID: \(frame.streamID)!!")
-            }
-
             let channel = MultiplexerAbstractChannel(
                 allocator: self.channel.allocator,
                 parent: self.channel,
@@ -250,11 +246,19 @@ public final class MPLEXStreamMultiplexer: ChannelInboundHandler, ChannelOutboun
             }
             self.onStream?(stream)
         } else {
-            // This frame is for a stream we know nothing about. We can't do much about it, so we
-            // are going to fire an error and drop the frame.
-            let error = NIOMPLEXErrors.noSuchStream(streamID: frame.streamID)
-            logger.error("MPLEXStreamMultiplexer:Error::No Such Stream: \(error)")
-            context.fireErrorCaught(error)
+            // This frame is for a stream we know nothing about. We must not tear down the whole
+            // connection over a stray frame. Drop resets silently; for anything else, tell
+            // the peer to stop by resetting the unknown stream.
+            switch frame.payload {
+            case .reset:
+                logger.trace("Dropping reset for unknown stream \(frame.streamID)")
+            default:
+                logger.debug("Received frame for unknown stream \(frame.streamID); resetting it")
+                context.writeAndFlush(
+                    self.wrapOutboundOut(MPLEXFrame(streamID: frame.streamID, payload: .reset)),
+                    promise: nil
+                )
+            }
         }
     }
 
@@ -524,13 +528,22 @@ extension MPLEXStreamMultiplexer {
     internal func childChannelWriteClosed(_ id: MPLEXStreamID) {
         guard let str = self.streamMap[id] else { return }
         switch str._streamState.withLockedValue({ $0 }) {
-        case .initialized, .open, .receiveClosed:
+        case .initialized, .open:
+            // We closed our write side; the read side remains open (half-closed).
             str._streamState.withLockedValue { $0 = .writeClosed }
+        case .receiveClosed:
+            // The peer had already closed its side, so closing ours fully closes the stream in
+            // both directions. Complete teardown now (#5).
+            str._streamState.withLockedValue { $0 = .closed }
+            if let channel = self._streams[id] {
+                channel.receiveStreamClosed(nil)
+                channel.channel.close(mode: .all, promise: nil)
+            }
+            self.streamMap.removeValue(forKey: id)
+            self._streams.removeValue(forKey: id)
+            self.onStreamEnd?(str)
         case .writeClosed, .closed, .reset:
-            print(
-                "MPLEXStreamMultiplexer::ERROR:Invalid child channel stream state transition \(str.streamState) -> .writeClosed"
-            )
-            return
+            self.logger.debug("Ignoring redundant write-close for stream \(id) in state \(str.streamState)")
         }
     }
 
