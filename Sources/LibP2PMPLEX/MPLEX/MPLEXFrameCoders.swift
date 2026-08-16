@@ -32,27 +32,42 @@ internal class MPLEXFrameEncoder: MessageToByteEncoder {
 internal final class MPLEXFrameDecoder: ByteToMessageDecoder {
     public typealias InboundOut = MPLEXFrame
 
-    private var headerLength: UInt64? = nil
+    /// The maximum message payload size permitted by the mplex spec (1 MiB).
+    ///
+    /// Frames advertising a length larger than this are rejected before we buffer their
+    /// payload, preventing a remote peer from forcing unbounded memory growth.
+    static let maxMessageSize: UInt64 = 1 << 20
+
+    /// The decoded header value (`streamID << 3 | flag`), retained across `decode` calls
+    /// until the full frame is available.
+    private var headerValue: UInt64? = nil
     private var msgLength: UInt64? = nil
 
     public init() {}
 
     public func decode(context: ChannelHandlerContext, buffer: inout ByteBuffer) throws -> DecodingState {
-        // If we don't have a length, we need to read one
-        if self.headerLength == nil {
-            self.headerLength = buffer.readVarint()
+        // If we don't have a header yet, we need to read one
+        if self.headerValue == nil {
+            self.headerValue = try buffer.readVarint()
         }
-        guard let headerLength = self.headerLength else {
+        guard let headerValue = self.headerValue else {
             // Not enough bytes to read the MPLEXHeader. Ask for more.
             return .needMoreData
         }
 
         if self.msgLength == nil {
-            self.msgLength = buffer.readVarint()
+            self.msgLength = try buffer.readVarint()
         }
         guard let msgLength = self.msgLength else {
-            // Not enough bytes to read the MPLEXHeader. Ask for more.
+            // Not enough bytes to read the message length. Ask for more.
             return .needMoreData
+        }
+
+        // Reject over-sized frames before buffering their payload. Doing this here (rather
+        // than after `readSlice`) means we never wait on / retain more than `maxMessageSize`
+        // bytes for a single frame.
+        guard msgLength <= Self.maxMessageSize else {
+            throw Errors.messageTooLarge(length: msgLength, max: Self.maxMessageSize)
         }
 
         // See if we can read this amount of data.
@@ -62,9 +77,9 @@ internal final class MPLEXFrameDecoder: ByteToMessageDecoder {
         }
 
         // Contruct the Flag
-        guard let flag = MPLEXFlag(rawValue: headerLength & 7) else { throw Errors.invalidMPLEXFlag }
+        guard let flag = MPLEXFlag(rawValue: headerValue & 7) else { throw Errors.invalidMPLEXFlag }
         // Construct the MPLEXFrame
-        let streamID = MPLEXStreamID(id: headerLength >> 3, flag: flag)
+        let streamID = MPLEXStreamID(id: headerValue >> 3, flag: flag)
         let out: MPLEXFrame
         switch flag {
         case .NewStream:
@@ -91,8 +106,8 @@ internal final class MPLEXFrameDecoder: ByteToMessageDecoder {
             )
         }
 
-        // We don't need the length now.
-        self.headerLength = nil
+        // We don't need the header or length now.
+        self.headerValue = nil
         self.msgLength = nil
 
         // Send the message's bytes up the pipeline to the next handler.
