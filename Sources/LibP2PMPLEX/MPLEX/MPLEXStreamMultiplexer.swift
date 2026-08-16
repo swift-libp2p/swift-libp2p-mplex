@@ -192,12 +192,13 @@ public final class MPLEXStreamMultiplexer: ChannelInboundHandler, ChannelOutboun
                     self.onStreamEnd?(stream)
                     return
                 } else {
-                    //logger.trace("We received a close message on a stream. Responding with close frame")
-                    //context.writeAndFlush( self.wrapOutboundOut(MPLEXFrame(streamID: frame.streamID, payload: .close)) , promise: nil)
-                    logger.trace("Alerting ChildChannel of close")
-                    channel.receiveStreamClosed(nil)
+                    // The peer closed its write direction but we have not closed ours. Signal
+                    // read-side EOF to the child channel while keeping it open so the application
+                    // can keep writing. The stream is fully torn down only once we also close our
+                    // side (see childChannelWriteClosed) or on reset.
+                    logger.trace("Peer half-closed stream \(frame.streamID); signalling input-closed")
                     stream._streamState.withLockedValue { $0 = .receiveClosed }
-                    self.onStreamEnd?(stream)
+                    channel.receiveInputClosed()
                     return
                 }
             }
