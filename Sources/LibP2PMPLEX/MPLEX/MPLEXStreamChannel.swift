@@ -968,6 +968,31 @@ extension MPLEXStreamChannel {
         self.multiplexer.childChannelWrite(frame, promise: promise)
     }
 
+    /// Called when the remote peer has closed its write direction (an mplex Close frame) while
+    /// our side is still open.
+    ///
+    /// This signals read-side EOF to the pipeline via `ChannelEvent.inputClosed` *without* tearing
+    /// the channel down, so the application can continue writing until it closes its own side. Full
+    /// teardown happens later, once we close our write direction too, or on reset.
+    func receiveInputClosed() {
+        guard self.state != .closed else {
+            // Nothing to do.
+            return
+        }
+
+        // Deliver any buffered reads first so the application observes all received data before
+        // the EOF signal, even if there is no outstanding read request.
+        if self.pendingReads.count > 0 && self._isActive {
+            self.unsatisfiedRead = false
+            self.deliverPendingReads()
+        }
+
+        // Signal half-closure (read-side EOF). Writes remain possible.
+        if self._isActive {
+            self.pipeline.fireUserInboundEventTriggered(ChannelEvent.inputClosed)
+        }
+    }
+
     /// Called when a stream closure is received from the network.
     ///
     /// - parameters:
