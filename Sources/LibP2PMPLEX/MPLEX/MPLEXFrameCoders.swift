@@ -116,9 +116,18 @@ internal final class MPLEXFrameDecoder: ByteToMessageDecoder {
 }
 
 extension ByteBuffer {
-    fileprivate mutating func readVarint() -> UInt64? {
+    /// Reads an unsigned base-128 varint.
+    ///
+    /// - Returns: The decoded value, or `nil` if the buffer does not yet contain a complete
+    ///   varint (in which case the reader index is left unchanged so the caller can retry once
+    ///   more bytes arrive).
+    /// - Throws: `MPLEXFrameDecoder.Errors.invalidVarint` if the varint exceeds the 9-byte /
+    ///   63-bit maximum for an mplex header. Previously this condition trapped with
+    ///   `fatalError`, allowing a remote peer to crash the process with malformed input.
+    fileprivate mutating func readVarint() throws -> UInt64? {
         var value: UInt64 = 0
         var shift: UInt64 = 0
+        var bytesRead = 0
         let initialReadIndex = self.readerIndex
 
         while true {
@@ -127,15 +136,19 @@ extension ByteBuffer {
                 self.moveReaderIndex(to: initialReadIndex)
                 return nil
             }
+            bytesRead += 1
 
             value |= UInt64(c & 0x7F) << shift
             if c & 0x80 == 0 {
                 return value
             }
-            shift += 7
-            if shift > 63 {
-                fatalError("Invalid varint, requires shift (\(shift)) > 64")
+            // The continuation bit is set, so at least one more byte is required. An mplex
+            // header is at most 63 bits (9 bytes); a 9th byte with the continuation bit set
+            // would require a 10th byte and is therefore invalid.
+            if bytesRead >= 9 {
+                throw MPLEXFrameDecoder.Errors.invalidVarint
             }
+            shift += 7
         }
     }
 
