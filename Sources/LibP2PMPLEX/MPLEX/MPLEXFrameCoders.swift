@@ -110,8 +110,13 @@ internal final class MPLEXFrameDecoder: ByteToMessageDecoder {
         try decode(context: context, buffer: &buffer)
     }
 
-    public enum Errors: Error {
+    public enum Errors: Error, Equatable {
+        /// The lower 3 bits of a header did not correspond to a known mplex flag.
         case invalidMPLEXFlag
+        /// A varint was malformed: it exceeded the 9-byte / 63-bit maximum for an mplex header.
+        case invalidVarInt
+        /// A frame advertised a payload larger than `maxMessageSize`.
+        case messageTooLarge(length: UInt64, max: UInt64)
     }
 }
 
@@ -121,7 +126,7 @@ extension ByteBuffer {
     /// - Returns: The decoded value, or `nil` if the buffer does not yet contain a complete
     ///   varint (in which case the reader index is left unchanged so the caller can retry once
     ///   more bytes arrive).
-    /// - Throws: `MPLEXFrameDecoder.Errors.invalidVarint` if the varint exceeds the 9-byte /
+    /// - Throws: `MPLEXFrameDecoder.Errors.invalidVarInt` if the varint exceeds the 9-byte /
     ///   63-bit maximum for an mplex header. Previously this condition trapped with
     ///   `fatalError`, allowing a remote peer to crash the process with malformed input.
     fileprivate mutating func readVarint() throws -> UInt64? {
@@ -146,7 +151,7 @@ extension ByteBuffer {
             // header is at most 63 bits (9 bytes); a 9th byte with the continuation bit set
             // would require a 10th byte and is therefore invalid.
             if bytesRead >= 9 {
-                throw MPLEXFrameDecoder.Errors.invalidVarint
+                throw MPLEXFrameDecoder.Errors.invalidVarInt
             }
             shift += 7
         }
