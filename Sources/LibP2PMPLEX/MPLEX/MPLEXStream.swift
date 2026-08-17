@@ -101,11 +101,11 @@ public final class MPLEXStream: _Stream {
         guard self.streamState == .open else {
             return self.channel.eventLoop.makeFailedFuture(Errors.streamNotWritable)
         }
-        // Write it out
-        self.channel.writeAndFlush(RawResponse(payload: buffer), promise: nil)
-        //self.channel.writeAndFlush(NIOAny(MPLEXFrame(streamID: streamID, payload: .outboundData(buffer))), promise: nil)
-        return self.channel.eventLoop.makeSucceededVoidFuture()
-        //return promise.futureResult
+        // Write it out, threading a promise through the child-channel pipeline so the returned future
+        // only succeeds once the write has actually reached the parent socket (not before).
+        let promise = self.channel.eventLoop.makePromise(of: Void.self)
+        self.channel.writeAndFlush(RawResponse(payload: buffer), promise: promise)
+        return promise.futureResult
     }
 
     /// Sends a close stream message to our remote peer, requesting this Stream be closed.
