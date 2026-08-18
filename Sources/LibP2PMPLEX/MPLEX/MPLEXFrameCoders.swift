@@ -21,38 +21,65 @@ internal class MPLEXFrameEncoder: MessageToByteEncoder {
     public init() {}
 
     public func encode(data: MPLEXFrame, out: inout ByteBuffer) throws {
-        let payload = data.messageBytes()
-        let length = putUVarInt(UInt64(payload.readableBytes))
         let header = putUVarInt(data.streamID.id << 3 | data.flag.rawValue)
-        out.writeBytes(header + length)
-        out.writeBytes(payload.readableBytesView)
+        var payload = data.messageBytes()
+
+        // The mplex spec caps a single frame's payload at 1 MiB. Split larger payloads across
+        // multiple frames — each sharing the same header (stream ID + flag) — so we never emit a
+        // frame that a spec-compliant peer would reset us for. Data on a stream is a byte stream,
+        // so message boundaries carry no semantics and the peer simply reassembles the bytes.
+        let maxChunk = Int(MPLEXFrameDecoder.maxMessageSize)
+
+        // Emit at least one frame, even for empty (control) payloads such as close/reset/newStream.
+        repeat {
+            // `min` keeps the length within bounds, so this force-unwrap is safe.
+            let chunk = payload.readSlice(length: min(payload.readableBytes, maxChunk))!
+            let length = putUVarInt(UInt64(chunk.readableBytes))
+            out.writeBytes(header + length)
+            out.writeBytes(chunk.readableBytesView)
+        } while payload.readableBytes > 0
     }
 }
 
 internal final class MPLEXFrameDecoder: ByteToMessageDecoder {
     public typealias InboundOut = MPLEXFrame
 
-    private var headerLength: UInt64? = nil
+    /// The maximum message payload size permitted by the mplex spec (1 MiB).
+    ///
+    /// Frames advertising a length larger than this are rejected before we buffer their
+    /// payload, preventing a remote peer from forcing unbounded memory growth.
+    static let maxMessageSize: UInt64 = 1 << 20
+
+    /// The decoded header value (`streamID << 3 | flag`), retained across `decode` calls
+    /// until the full frame is available.
+    private var headerValue: UInt64? = nil
     private var msgLength: UInt64? = nil
 
     public init() {}
 
     public func decode(context: ChannelHandlerContext, buffer: inout ByteBuffer) throws -> DecodingState {
-        // If we don't have a length, we need to read one
-        if self.headerLength == nil {
-            self.headerLength = buffer.readVarint()
+        // If we don't have a header yet, we need to read one
+        if self.headerValue == nil {
+            self.headerValue = try buffer.readVarint()
         }
-        guard let headerLength = self.headerLength else {
+        guard let headerValue = self.headerValue else {
             // Not enough bytes to read the MPLEXHeader. Ask for more.
             return .needMoreData
         }
 
         if self.msgLength == nil {
-            self.msgLength = buffer.readVarint()
+            self.msgLength = try buffer.readVarint()
         }
         guard let msgLength = self.msgLength else {
-            // Not enough bytes to read the MPLEXHeader. Ask for more.
+            // Not enough bytes to read the message length. Ask for more.
             return .needMoreData
+        }
+
+        // Reject over-sized frames before buffering their payload. Doing this here (rather
+        // than after `readSlice`) means we never wait on / retain more than `maxMessageSize`
+        // bytes for a single frame.
+        guard msgLength <= Self.maxMessageSize else {
+            throw Errors.messageTooLarge(length: msgLength, max: Self.maxMessageSize)
         }
 
         // See if we can read this amount of data.
@@ -62,9 +89,9 @@ internal final class MPLEXFrameDecoder: ByteToMessageDecoder {
         }
 
         // Contruct the Flag
-        guard let flag = MPLEXFlag(rawValue: headerLength & 7) else { throw Errors.invalidMPLEXFlag }
+        guard let flag = MPLEXFlag(rawValue: headerValue & 7) else { throw Errors.invalidMPLEXFlag }
         // Construct the MPLEXFrame
-        let streamID = MPLEXStreamID(id: headerLength >> 3, flag: flag)
+        let streamID = MPLEXStreamID(id: headerValue >> 3, flag: flag)
         let out: MPLEXFrame
         switch flag {
         case .NewStream:
@@ -91,8 +118,8 @@ internal final class MPLEXFrameDecoder: ByteToMessageDecoder {
             )
         }
 
-        // We don't need the length now.
-        self.headerLength = nil
+        // We don't need the header or length now.
+        self.headerValue = nil
         self.msgLength = nil
 
         // Send the message's bytes up the pipeline to the next handler.
@@ -110,15 +137,29 @@ internal final class MPLEXFrameDecoder: ByteToMessageDecoder {
         try decode(context: context, buffer: &buffer)
     }
 
-    public enum Errors: Error {
+    public enum Errors: Error, Equatable {
+        /// The lower 3 bits of a header did not correspond to a known mplex flag.
         case invalidMPLEXFlag
+        /// A varint was malformed: it exceeded the 9-byte / 63-bit maximum for an mplex header.
+        case invalidVarInt
+        /// A frame advertised a payload larger than `maxMessageSize`.
+        case messageTooLarge(length: UInt64, max: UInt64)
     }
 }
 
 extension ByteBuffer {
-    fileprivate mutating func readVarint() -> UInt64? {
+    /// Reads an unsigned base-128 varint.
+    ///
+    /// - Returns: The decoded value, or `nil` if the buffer does not yet contain a complete
+    ///   varint (in which case the reader index is left unchanged so the caller can retry once
+    ///   more bytes arrive).
+    /// - Throws: `MPLEXFrameDecoder.Errors.invalidVarInt` if the varint exceeds the 9-byte /
+    ///   63-bit maximum for an mplex header. Previously this condition trapped with
+    ///   `fatalError`, allowing a remote peer to crash the process with malformed input.
+    fileprivate mutating func readVarint() throws -> UInt64? {
         var value: UInt64 = 0
         var shift: UInt64 = 0
+        var bytesRead = 0
         let initialReadIndex = self.readerIndex
 
         while true {
@@ -127,15 +168,19 @@ extension ByteBuffer {
                 self.moveReaderIndex(to: initialReadIndex)
                 return nil
             }
+            bytesRead += 1
 
             value |= UInt64(c & 0x7F) << shift
             if c & 0x80 == 0 {
                 return value
             }
-            shift += 7
-            if shift > 63 {
-                fatalError("Invalid varint, requires shift (\(shift)) > 64")
+            // The continuation bit is set, so at least one more byte is required. An mplex
+            // header is at most 63 bits (9 bytes); a 9th byte with the continuation bit set
+            // would require a 10th byte and is therefore invalid.
+            if bytesRead >= 9 {
+                throw MPLEXFrameDecoder.Errors.invalidVarInt
             }
+            shift += 7
         }
     }
 

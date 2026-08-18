@@ -407,13 +407,6 @@ final class MPLEXStreamChannel: Channel, ChannelCore, @unchecked Sendable {
         }
         self.modifyingState { $0.networkActive() }
 
-        //if self.writabilityManager.isWritable != self._isWritable.load() {
-        //    // We have probably delayed telling the user that this channel isn't writable, but we should do
-        //    // it now.
-        //    self._isWritable.store(self.writabilityManager.isWritable)
-        //    self.pipeline.fireChannelWritabilityChanged()
-        //}
-
         // If we got here, we may need to flush some pending reads. Notably we don't call read0 here as
         // we don't actually want to start reading before activation, which tryToRead will refuse to do.
         if self.pendingReads.count > 0 {
@@ -558,14 +551,12 @@ final class MPLEXStreamChannel: Channel, ChannelCore, @unchecked Sendable {
     ///
     /// To correctly respect flushes, we deliberately withold frames from the parent channel until this
     /// stream is flushed, at which time we deliver them all. This buffer holds the pending ones.
-    private var pendingWrites: MarkedCircularBuffer<MPLEXStreamData> = MarkedCircularBuffer(initialCapacity: 8)
-    //private var pendingWrites: MarkedCircularBuffer<(MPLEXStreamData, EventLoopPromise<Void>?)> = MarkedCircularBuffer(initialCapacity: 8)
+    private var pendingWrites: MarkedCircularBuffer<(MPLEXStreamData, EventLoopPromise<Void>?)> = MarkedCircularBuffer(
+        initialCapacity: 8
+    )
 
     /// A list node used to hold stream channels.
     internal var streamChannelListNode: MPLEXStreamChannelListNode = MPLEXStreamChannelListNode()
-
-    /// An object that controls whether this channel should be writable.
-    //private var writabilityManager: MPLEXStreamChannelFlowController
 
     public func register0(promise: EventLoopPromise<Void>?) {
         fatalError("not implemented \(#function)")
@@ -605,26 +596,9 @@ final class MPLEXStreamChannel: Channel, ChannelCore, @unchecked Sendable {
             }
         }
 
-        // We need a promise to attach our flow control callback to.
-        // Regardless of whether the write succeeded or failed, we don't count
-        // the bytes any longer.
-        //let promise = promise ?? self.eventLoop.makePromise()
-        //let writeSize = streamData.estimatedFrameSize
-
-        // Right now we deal with this math by just attaching a callback to all promises. This is going
-        // to be annoyingly expensive, but for now it's the most straightforward approach.
-        //promise.futureResult.hop(to: self.eventLoop).whenComplete { (_: Result<Void, Error>) in
-        //    if case .changed(newValue: let value) = self.writabilityManager.wroteBytes(writeSize) {
-        //        self.changeWritability(to: value)
-        //    }
-        //}
-        //self.pendingWrites.append((streamData, promise))
-        self.pendingWrites.append(streamData)
-
-        // Ok, we can make an outcall now, which means we can safely deal with the flow control.
-        //if case .changed(newValue: let value) = self.writabilityManager.bufferedBytes(writeSize) {
-        //    self.changeWritability(to: value)
-        //}
+        // Buffer the write with its promise so it can be threaded through to the parent socket write and
+        // completed only once the bytes are actually flushed (flow-control accounting is not enabled here).
+        self.pendingWrites.append((streamData, promise))
     }
 
     public func flush0() {
@@ -751,7 +725,9 @@ final class MPLEXStreamChannel: Channel, ChannelCore, @unchecked Sendable {
         if self.state == .active {
             //print("MPLEXFrame[\(self.streamID!.id)]::ErrorEncountered -> Sending Reset Frame")
             // We should have a stream ID here, force-unwrap is safe.
-            let resetFrame = MPLEXFrame(streamID: self.streamID!, payload: .close)
+            // An error is an abnormal termination, so we reset the stream rather than
+            // performing a graceful (half-)close.
+            let resetFrame = MPLEXFrame(streamID: self.streamID!, payload: .reset)
             self.receiveOutboundFrame(resetFrame, promise: nil)
             self.multiplexer.childChannelFlush()
         }
@@ -769,6 +745,46 @@ final class MPLEXStreamChannel: Channel, ChannelCore, @unchecked Sendable {
         self.eventLoop.execute {
             self.removeHandlers(pipeline: self.pipeline)
             self.closePromise.fail(error)
+            if let streamID = self.streamID {
+                self.multiplexer.childChannelClosed(streamID: streamID)
+            } else {
+                self.multiplexer.childChannelClosed(channelID: ObjectIdentifier(self))
+            }
+        }
+    }
+
+    /// Deliberately resets the stream (an abrupt teardown). Emits a single RST_STREAM (`.reset`) frame to
+    /// the peer via the multiplexer → parent channel — never down the child app pipeline, whose handlers
+    /// only understand `RawResponse` — then tears the stream down locally and SUCCEEDS `promise`. This is
+    /// the intentional, non-error counterpart to `errorEncountered` (which emits the same frame but fails
+    /// promises with the error). Unlike a graceful close it does not emit a `.close` frame.
+    func resetStream(promise: EventLoopPromise<Void>?) {
+        self.eventLoop.preconditionInEventLoop()
+        guard self.state != .closed else {
+            promise?.succeed(())
+            return
+        }
+
+        if self.state == .active {
+            // We should have a stream ID here, force-unwrap is safe.
+            let resetFrame = MPLEXFrame(streamID: self.streamID!, payload: .reset)
+            self.receiveOutboundFrame(resetFrame, promise: nil)
+            self.multiplexer.childChannelFlush()
+        }
+
+        self.modifyingState { $0.completeClosing() }
+        self.dropPendingReads()
+        self.failPendingWrites(error: ChannelError.eof)
+        if let pending = self.pendingClosePromise {
+            self.pendingClosePromise = nil
+            pending.succeed(())
+        }
+        self.pipeline.fireChannelInactive()
+        promise?.succeed(())
+
+        self.eventLoop.execute {
+            self.removeHandlers(pipeline: self.pipeline)
+            self.closePromise.succeed(())
             if let streamID = self.streamID {
                 self.multiplexer.childChannelClosed(streamID: streamID)
             } else {
@@ -888,8 +904,7 @@ extension MPLEXStreamChannel {
         }
 
         while self.pendingWrites.hasMark {
-            //let (streamData, promise) = self.pendingWrites.removeFirst()
-            let streamData = self.pendingWrites.removeFirst()
+            let (streamData, promise) = self.pendingWrites.removeFirst()
             let frame: MPLEXFrame
 
             switch streamData {
@@ -900,8 +915,7 @@ extension MPLEXStreamChannel {
                 frame = MPLEXFrame(streamID: self.streamID!, payload: payload)
             }
 
-            //self.receiveOutboundFrame(frame, promise: promise)
-            self.receiveOutboundFrame(frame, promise: nil)
+            self.receiveOutboundFrame(frame, promise: promise)
         }
         self.multiplexer.childChannelFlush()
     }
@@ -910,8 +924,7 @@ extension MPLEXStreamChannel {
     private func failPendingWrites(error: Error) {
         assert(self.state == .closed)
         while self.pendingWrites.count > 0 {
-            //self.pendingWrites.removeFirst().1?.fail(error)
-            let _ = self.pendingWrites.removeFirst()
+            self.pendingWrites.removeFirst().1?.fail(error)
         }
     }
 }
@@ -966,6 +979,31 @@ extension MPLEXStreamChannel {
         self.multiplexer.childChannelWrite(frame, promise: promise)
     }
 
+    /// Called when the remote peer has closed its write direction (an mplex Close frame) while
+    /// our side is still open.
+    ///
+    /// This signals read-side EOF to the pipeline via `ChannelEvent.inputClosed` *without* tearing
+    /// the channel down, so the application can continue writing until it closes its own side. Full
+    /// teardown happens later, once we close our write direction too, or on reset.
+    func receiveInputClosed() {
+        guard self.state != .closed else {
+            // Nothing to do.
+            return
+        }
+
+        // Deliver any buffered reads first so the application observes all received data before
+        // the EOF signal, even if there is no outstanding read request.
+        if self.pendingReads.count > 0 && self._isActive {
+            self.unsatisfiedRead = false
+            self.deliverPendingReads()
+        }
+
+        // Signal half-closure (read-side EOF). Writes remain possible.
+        if self._isActive {
+            self.pipeline.fireUserInboundEventTriggered(ChannelEvent.inputClosed)
+        }
+    }
+
     /// Called when a stream closure is received from the network.
     ///
     /// - parameters:
@@ -1000,50 +1038,9 @@ extension MPLEXStreamChannel {
         }
     }
 
-    //    func receiveWindowUpdatedEvent(_ windowSize: Int) {
-    //        if let increment = self.windowManager.newWindowSize(windowSize) {
-    //            // To receive from the network, it must be safe to force-unwrap here.
-    //            let frame = MPLEXFrame(streamID: self.streamID!, payload: .windowUpdate(windowSizeIncrement: increment))
-    //            self.receiveOutboundFrame(frame, promise: nil)
-    //            // This flush should really go away, but we need it for now until we sort out window management.
-    //            self.multiplexer.childChannelFlush()
-    //        }
-    //    }
-    //
-    //    func initialWindowSizeChanged(delta: Int) {
-    //        if let increment = self.windowManager.initialWindowSizeChanged(delta: delta) {
-    //            // To receive from the network, it must be safe to force-unwrap here.
-    //            let frame = MPLEXFrame(streamID: self.streamID!, payload: .windowUpdate(windowSizeIncrement: increment))
-    //            self.receiveOutboundFrame(frame, promise: nil)
-    //            // This flush should really go away, but we need it for now until we sort out window management.
-    //            self.multiplexer.childChannelFlush()
-    //        }
-    //    }
-
     func receiveParentChannelReadComplete() {
         self.tryToRead()
     }
-
-    //    func parentChannelWritabilityChanged(newValue: Bool) {
-    //        // There's a trick here that's worth noting: if the child channel hasn't either sent a frame
-    //        // or been activated on the network, we don't actually want to change the observable writability.
-    //        // This is because in this case we really want user code to send a frame as soon as possible to avoid
-    //        // issues with their stream ID becoming out of date. Once the state transitions we can update
-    //        // the writability if needed.
-    //        guard case .changed(newValue: let localValue) = self.writabilityManager.parentWritabilityChanged(newValue) else {
-    //            return
-    //        }
-    //
-    //        // Ok, the writability changed.
-    //        switch self.state {
-    //        case .idle, .localActive:
-    //            // Do nothing here.
-    //            return
-    //        case .remoteActive, .active, .closing, .closingNeverActivated, .closed:
-    //            self._isWritable.store(localValue)
-    //            self.pipeline.fireChannelWritabilityChanged()
-    //        }
-    //    }
 
     func receiveStreamError(_ error: NIOMPLEXErrors.StreamError) {
         assert(error.streamID == self.streamID)

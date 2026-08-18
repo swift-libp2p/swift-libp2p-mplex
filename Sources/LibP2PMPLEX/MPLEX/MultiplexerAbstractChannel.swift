@@ -142,6 +142,10 @@ extension MultiplexerAbstractChannel {
         self.baseChannel.receiveParentChannelReadComplete()
     }
 
+    func receiveInputClosed() {
+        self.baseChannel.receiveInputClosed()
+    }
+
     func receiveStreamClosed(_ reason: MPLEXErrorCode?) {
         self.baseChannel.receiveStreamClosed(reason)
     }

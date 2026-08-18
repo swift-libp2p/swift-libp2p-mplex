@@ -137,4 +137,165 @@ struct LibP2PMPLEXTests {
             )
         }
     }
+
+    // MARK: - Malformed input hardening
+
+    /// A malformed (over-long) header varint must be rejected with a thrown error rather than
+    /// crashing the process. Regression test for the previous `fatalError` on varint overflow,
+    /// which allowed a remote peer to take down the whole connection/process.
+    @Test func testOversizedVarintThrowsInsteadOfCrashing() throws {
+        let channel = EmbeddedChannel(handler: ByteToMessageHandler(MPLEXFrameDecoder()))
+        // 10 continuation bytes: a varint can never be this long for a valid mplex header.
+        let malformed = channel.allocator.buffer(bytes: [UInt8](repeating: 0x80, count: 10))
+
+        #expect(throws: MPLEXFrameDecoder.Errors.invalidVarInt) {
+            try channel.writeInbound(malformed)
+        }
+
+        _ = try? channel.finish()
+    }
+
+    /// A frame advertising a payload larger than the 1 MiB spec maximum must be rejected before
+    /// its payload is buffered, preventing unbounded memory growth from a hostile peer.
+    @Test func testOverSizedMessageIsRejected() throws {
+        let channel = EmbeddedChannel(handler: ByteToMessageHandler(MPLEXFrameDecoder()))
+
+        // header: streamID 0, flag NewStream (0)  -> varint [0x00]
+        // length: 1 MiB + 1 (1_048_577)           -> varint [0x81, 0x80, 0x40]
+        let oversized = channel.allocator.buffer(bytes: [0x00, 0x81, 0x80, 0x40])
+
+        #expect(throws: MPLEXFrameDecoder.Errors.messageTooLarge(length: (1 << 20) + 1, max: 1 << 20)) {
+            try channel.writeInbound(oversized)
+        }
+
+        _ = try? channel.finish()
+    }
+
+    /// A frame at exactly the 1 MiB maximum is valid and must decode successfully.
+    @Test func testMaxSizedMessageIsAccepted() throws {
+        let channel = EmbeddedChannel(handler: ByteToMessageHandler(MPLEXFrameDecoder()))
+
+        let max = Int(MPLEXFrameDecoder.maxMessageSize)  // 1 MiB
+        // header: streamID 1, flag MessageInitiator (2) -> (1 << 3 | 2) = 10 -> varint [0x0a]
+        // length: 1 MiB (1_048_576)                     -> varint [0x80, 0x80, 0x40]
+        var bytes: [UInt8] = [0x0a, 0x80, 0x80, 0x40]
+        bytes.append(contentsOf: [UInt8](repeating: 0xab, count: max))
+        let inbound = channel.allocator.buffer(bytes: bytes)
+
+        try channel.writeInbound(inbound)
+
+        let decoded = try #require(try channel.readInbound(as: MPLEXFrame.self))
+        #expect(decoded.streamID.id == 1)
+        if case .inboundData(let payload) = decoded.payload {
+            #expect(payload.readableBytes == max)
+        } else {
+            Issue.record("Expected inboundData payload, got \(decoded.payload)")
+        }
+
+        _ = try? channel.finish()
+    }
+
+    /// An unknown flag (the 3-bit flag field only defines values 0...6) must be rejected.
+    @Test func testInvalidFlagThrows() throws {
+        let channel = EmbeddedChannel(handler: ByteToMessageHandler(MPLEXFrameDecoder()))
+        // header: streamID 0, flag 7 (undefined) -> varint [0x07]; length 0 -> [0x00]
+        let invalid = channel.allocator.buffer(bytes: [0x07, 0x00])
+
+        #expect(throws: MPLEXFrameDecoder.Errors.invalidMPLEXFlag) {
+            try channel.writeInbound(invalid)
+        }
+
+        _ = try? channel.finish()
+    }
+
+    // MARK: - Encoder round-trips
+
+    /// Round-trips control frames through the encoder and decoder to lock in that `close` and
+    /// `reset` map to distinct wire flags and decode back to the correct payload. This also
+    /// provides the encoder's first test coverage.
+    ///
+    /// - Note: We compare the numeric stream ID and payload rather than the whole frame, because
+    ///   the initiator flag is intentionally sender-relative on the wire: encoding uses the
+    ///   local perspective and decoding reconstructs the peer's, so the boolean flips on a
+    ///   single-hop round-trip.
+    @Test func testEncodeDecodeRoundTripPreservesPayload() throws {
+        let payloads: [MPLEXFrame.FramePayload] = [
+            .reset,
+            .close,
+            .newStream,
+            .outboundData(ByteBuffer(bytes: [0x01, 0x02, 0x03, 0x04])),
+        ]
+
+        for payload in payloads {
+            let frame = MPLEXFrame(streamID: MPLEXStreamID(id: 42, mode: .initiator), payload: payload)
+
+            let encoder = EmbeddedChannel(handler: MessageToByteHandler(MPLEXFrameEncoder()))
+            try encoder.writeOutbound(frame)
+            let wire = try #require(try encoder.readOutbound(as: ByteBuffer.self))
+            _ = try? encoder.finish()
+
+            let decoder = EmbeddedChannel(handler: ByteToMessageHandler(MPLEXFrameDecoder()))
+            try decoder.writeInbound(wire)
+            let decoded = try #require(try decoder.readInbound(as: MPLEXFrame.self))
+            _ = try? decoder.finish()
+
+            #expect(decoded.streamID.id == 42)
+            #expect(decoded.payload == expectedInboundPayload(for: payload))
+        }
+    }
+
+    /// An outbound data payload larger than the 1 MiB spec maximum must be split into multiple
+    /// frames (each at or below the limit) that reassemble to the original bytes. Regression test
+    /// ensuring we never emit a frame a compliant peer would reset.
+    @Test func testOversizedOutboundWriteIsChunked() throws {
+        let max = Int(MPLEXFrameDecoder.maxMessageSize)
+        let totalSize = max * 2 + 1234  // two full chunks plus a remainder
+        let original = [UInt8](repeating: 0xcd, count: totalSize)
+
+        // Encode a single large data frame.
+        let encoder = EmbeddedChannel(handler: MessageToByteHandler(MPLEXFrameEncoder()))
+        let frame = MPLEXFrame(
+            streamID: MPLEXStreamID(id: 9, mode: .initiator),
+            payload: .outboundData(ByteBuffer(bytes: original))
+        )
+        try encoder.writeOutbound(frame)
+
+        var wire = encoder.allocator.buffer(capacity: totalSize)
+        while var buffer = try encoder.readOutbound(as: ByteBuffer.self) {
+            wire.writeBuffer(&buffer)
+        }
+        _ = try? encoder.finish()
+
+        // Decode the produced wire bytes back into frames.
+        let decoder = EmbeddedChannel(handler: ByteToMessageHandler(MPLEXFrameDecoder()))
+        try decoder.writeInbound(wire)
+
+        var reassembled: [UInt8] = []
+        var frameCount = 0
+        while let decoded = try decoder.readInbound(as: MPLEXFrame.self) {
+            frameCount += 1
+            #expect(decoded.streamID.id == 9)
+            if case .inboundData(let buffer) = decoded.payload {
+                #expect(buffer.readableBytes <= max)
+                reassembled.append(contentsOf: buffer.readableBytesView)
+            } else {
+                Issue.record("Expected inboundData payload, got \(decoded.payload)")
+            }
+        }
+        _ = try? decoder.finish()
+
+        #expect(frameCount == 3)
+        #expect(reassembled == original)
+    }
+
+    /// Maps an outbound payload to the payload the decoder produces for it (the decoder emits
+    /// `inboundData` for data frames and carries no bytes for control frames).
+    private func expectedInboundPayload(for payload: MPLEXFrame.FramePayload) -> MPLEXFrame.FramePayload {
+        switch payload {
+        case .outboundData(let buffer):
+            return .inboundData(buffer)
+        default:
+            return payload
+        }
+    }
 }

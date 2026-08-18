@@ -101,24 +101,35 @@ public final class MPLEXStream: _Stream {
         guard self.streamState == .open else {
             return self.channel.eventLoop.makeFailedFuture(Errors.streamNotWritable)
         }
-        // Write it out
-        self.channel.writeAndFlush(RawResponse(payload: buffer), promise: nil)
-        //self.channel.writeAndFlush(NIOAny(MPLEXFrame(streamID: streamID, payload: .outboundData(buffer))), promise: nil)
-        return self.channel.eventLoop.makeSucceededVoidFuture()
-        //return promise.futureResult
+        // Write it out, threading a promise through the child-channel pipeline so the returned future
+        // only succeeds once the write has actually reached the parent socket (not before).
+        let promise = self.channel.eventLoop.makePromise(of: Void.self)
+        self.channel.writeAndFlush(RawResponse(payload: buffer), promise: promise)
+        return promise.futureResult
     }
 
     /// Sends a close stream message to our remote peer, requesting this Stream be closed.
     /// - Note: Because there can be multiple MPLEXStreams over a single Connection, this will NOT close the underlying Connection.
+    /// - Parameter gracefully: When `true`, our write direction is closed with a Close frame,
+    ///   leaving the read direction open (half-close) until the peer also closes. When `false`,
+    ///   the stream is reset immediately, discarding any in-flight data in both directions.
     public func close(gracefully: Bool) -> EventLoopFuture<Void> {
+        guard gracefully else {
+            // A non-graceful close is an abrupt reset.
+            return self.reset()
+        }
+
         switch self._streamState.withLockedValue({ $0 }) {
-        case .initialized, .open:
-            self._streamState.withLockedValue { $0 = .writeClosed }
-        case .receiveClosed:
-            self._streamState.withLockedValue { $0 = .closed }
+        case .initialized, .open, .receiveClosed:
+            break
         case .writeClosed, .closed, .reset:
+            // Our write side is already closed (or the stream is gone); nothing to do.
             return self.channel.eventLoop.makeSucceededVoidFuture()
         }
+
+        // Close our write side. The multiplexer owns the stream-state transition (and completes
+        // full teardown once both directions are closed) via `childChannelWriteClosed`, so we do
+        // not mutate the state here.
         self.channel.close(mode: .all, promise: nil)
         return self.channel.eventLoop.makeSucceededVoidFuture()
     }
@@ -126,19 +137,28 @@ public final class MPLEXStream: _Stream {
     /// Sends a reset stream message to our remote peer, immediately shutting down the Stream.
     /// - Note: Once an MPLEXStream has been reset, you can no longer write / read to / from it.
     public func reset() -> EventLoopFuture<Void> {
-        let promise = self.channel.eventLoop.makePromise(of: Void.self)
-        if self.channel.isActive && self.channel.isWritable {
-            print("Stream[\(streamID.id)] -> Writing Reset Message")
-            self.channel.writeAndFlush(MPLEXFrame(streamID: streamID, payload: .reset), promise: nil)
-        } else {
-            print("Stream[\(streamID.id)] -> Skipping Reset Message, Channel already closed...")
+        // If we're already terminal there's nothing to do.
+        switch self._streamState.withLockedValue({ $0 }) {
+        case .reset, .closed:
+            return self.channel.eventLoop.makeSucceededVoidFuture()
+        default:
+            break
         }
-        //        return promise.futureResult.always { _ in
-        //            print("Stream[\(self.streamID.id)] -> Reseting")
-        //            self.channel.close(mode: .all, promise: nil)
-        //        }
         self._streamState.withLockedValue { $0 = .reset }
-        self.channel.close(mode: .all, promise: promise)
+
+        let promise = self.channel.eventLoop.makePromise(of: Void.self)
+        // Route the RST_STREAM frame through the multiplexer → parent channel via the child channel's
+        // dedicated reset path.
+        if let streamChannel = self.channel as? MPLEXStreamChannel {
+            if self.channel.eventLoop.inEventLoop {
+                streamChannel.resetStream(promise: promise)
+            } else {
+                self.channel.eventLoop.execute { streamChannel.resetStream(promise: promise) }
+            }
+        } else {
+            // Fallback (non-MPLEX channel, e.g. under test): a plain close still tears the stream down.
+            self.channel.close(mode: .all, promise: promise)
+        }
         return promise.futureResult
     }
 
