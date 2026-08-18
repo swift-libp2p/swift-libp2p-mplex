@@ -137,19 +137,28 @@ public final class MPLEXStream: _Stream {
     /// Sends a reset stream message to our remote peer, immediately shutting down the Stream.
     /// - Note: Once an MPLEXStream has been reset, you can no longer write / read to / from it.
     public func reset() -> EventLoopFuture<Void> {
-        let promise = self.channel.eventLoop.makePromise(of: Void.self)
-        if self.channel.isActive && self.channel.isWritable {
-            print("Stream[\(streamID.id)] -> Writing Reset Message")
-            self.channel.writeAndFlush(MPLEXFrame(streamID: streamID, payload: .reset), promise: nil)
-        } else {
-            print("Stream[\(streamID.id)] -> Skipping Reset Message, Channel already closed...")
+        // If we're already terminal there's nothing to do.
+        switch self._streamState.withLockedValue({ $0 }) {
+        case .reset, .closed:
+            return self.channel.eventLoop.makeSucceededVoidFuture()
+        default:
+            break
         }
-        //        return promise.futureResult.always { _ in
-        //            print("Stream[\(self.streamID.id)] -> Reseting")
-        //            self.channel.close(mode: .all, promise: nil)
-        //        }
         self._streamState.withLockedValue { $0 = .reset }
-        self.channel.close(mode: .all, promise: promise)
+
+        let promise = self.channel.eventLoop.makePromise(of: Void.self)
+        // Route the RST_STREAM frame through the multiplexer → parent channel via the child channel's
+        // dedicated reset path.
+        if let streamChannel = self.channel as? MPLEXStreamChannel {
+            if self.channel.eventLoop.inEventLoop {
+                streamChannel.resetStream(promise: promise)
+            } else {
+                self.channel.eventLoop.execute { streamChannel.resetStream(promise: promise) }
+            }
+        } else {
+            // Fallback (non-MPLEX channel, e.g. under test): a plain close still tears the stream down.
+            self.channel.close(mode: .all, promise: promise)
+        }
         return promise.futureResult
     }
 
