@@ -753,6 +753,46 @@ final class MPLEXStreamChannel: Channel, ChannelCore, @unchecked Sendable {
         }
     }
 
+    /// Deliberately resets the stream (an abrupt teardown). Emits a single RST_STREAM (`.reset`) frame to
+    /// the peer via the multiplexer → parent channel — never down the child app pipeline, whose handlers
+    /// only understand `RawResponse` — then tears the stream down locally and SUCCEEDS `promise`. This is
+    /// the intentional, non-error counterpart to `errorEncountered` (which emits the same frame but fails
+    /// promises with the error). Unlike a graceful close it does not emit a `.close` frame.
+    func resetStream(promise: EventLoopPromise<Void>?) {
+        self.eventLoop.preconditionInEventLoop()
+        guard self.state != .closed else {
+            promise?.succeed(())
+            return
+        }
+
+        if self.state == .active {
+            // We should have a stream ID here, force-unwrap is safe.
+            let resetFrame = MPLEXFrame(streamID: self.streamID!, payload: .reset)
+            self.receiveOutboundFrame(resetFrame, promise: nil)
+            self.multiplexer.childChannelFlush()
+        }
+
+        self.modifyingState { $0.completeClosing() }
+        self.dropPendingReads()
+        self.failPendingWrites(error: ChannelError.eof)
+        if let pending = self.pendingClosePromise {
+            self.pendingClosePromise = nil
+            pending.succeed(())
+        }
+        self.pipeline.fireChannelInactive()
+        promise?.succeed(())
+
+        self.eventLoop.execute {
+            self.removeHandlers(pipeline: self.pipeline)
+            self.closePromise.succeed(())
+            if let streamID = self.streamID {
+                self.multiplexer.childChannelClosed(streamID: streamID)
+            } else {
+                self.multiplexer.childChannelClosed(channelID: ObjectIdentifier(self))
+            }
+        }
+    }
+
     private func tryToRead() {
         // If there's no read to satisfy, no worries about it.
         guard self.unsatisfiedRead else {
