@@ -707,13 +707,7 @@ final class MPLEXStreamChannel: Channel, ChannelCore, @unchecked Sendable {
             } else {
                 self.multiplexer.childChannelClosed(channelID: ObjectIdentifier(self))
             }
-            /// Should I do this???
-            //print("MPLEXFrame::Dereferencing")
-            self._pipeline = nil
             self.pendingReads.removeAll()
-            self.pendingReads = nil
-            //            print("Unsatisfied Read: \(self.unsatisfiedRead)")
-            //            print("Pending Reads: \(self.pendingReads.count)")
         }
     }
 
