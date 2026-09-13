@@ -53,39 +53,38 @@ internal final class MPLEXFrameDecoder: ByteToMessageDecoder {
     /// The decoded header value (`streamID << 3 | flag`), retained across `decode` calls
     /// until the full frame is available.
     private var headerValue: UInt64? = nil
-    private var msgLength: UInt64? = nil
 
     public init() {}
 
     public func decode(context: ChannelHandlerContext, buffer: inout ByteBuffer) throws -> DecodingState {
         // If we don't have a header yet, we need to read one
         if self.headerValue == nil {
-            self.headerValue = try buffer.readVarint()
+            do {
+                self.headerValue = try buffer.readVarInt()
+            } catch {
+                throw Errors.invalidVarInt
+            }
         }
         guard let headerValue = self.headerValue else {
             // Not enough bytes to read the MPLEXHeader. Ask for more.
             return .needMoreData
         }
 
-        if self.msgLength == nil {
-            self.msgLength = try buffer.readVarint()
-        }
-        guard let msgLength = self.msgLength else {
-            // Not enough bytes to read the message length. Ask for more.
-            return .needMoreData
-        }
-
-        // Reject over-sized frames before buffering their payload. Doing this here (rather
-        // than after `readSlice`) means we never wait on / retain more than `maxMessageSize`
-        // bytes for a single frame.
-        guard msgLength <= Self.maxMessageSize else {
-            throw Errors.messageTooLarge(length: msgLength, max: Self.maxMessageSize)
-        }
-
-        // See if we can read this amount of data.
-        guard let messageBytes = buffer.readSlice(length: Int(msgLength)) else {
-            // not enough bytes in the buffer to satisfy the read. Ask for more.
-            return .needMoreData
+        // Read the length prefixed payload.
+        let messageBytes: ByteBuffer
+        do {
+            guard let body = try buffer.readVarIntLengthPrefixedSlice(limit: Self.maxMessageSize) else {
+                // Not enough bytes in the buffer to satisfy the read. Ask for more.
+                return .needMoreData
+            }
+            messageBytes = body
+        } catch VarIntError.exceedsLimit {
+            throw Errors.messageTooLarge(
+                length: try Self.announcedLength(of: buffer),
+                max: Self.maxMessageSize
+            )
+        } catch {
+            throw Errors.invalidVarInt
         }
 
         // Contruct the Flag
@@ -118,9 +117,8 @@ internal final class MPLEXFrameDecoder: ByteToMessageDecoder {
             )
         }
 
-        // We don't need the header or length now.
+        // We don't need the header now.
         self.headerValue = nil
-        self.msgLength = nil
 
         // Send the message's bytes up the pipeline to the next handler.
         context.fireChannelRead(self.wrapInboundOut(out))
@@ -137,10 +135,20 @@ internal final class MPLEXFrameDecoder: ByteToMessageDecoder {
         try decode(context: context, buffer: &buffer)
     }
 
+    /// Attempts to read the length prefix so `messageTooLarge` can provide the length.
+    ///
+    /// - Throws: `invalidVarInt` when the prefix can't be decoded on its own.
+    private static func announcedLength(of buffer: ByteBuffer) throws -> UInt64 {
+        guard let prefix = try? buffer.getVarInt(at: buffer.readerIndex) else {
+            throw Errors.invalidVarInt
+        }
+        return prefix.value
+    }
+
     public enum Errors: Error, Equatable {
         /// The lower 3 bits of a header did not correspond to a known mplex flag.
         case invalidMPLEXFlag
-        /// A varint was malformed: it exceeded the 9-byte / 63-bit maximum for an mplex header.
+        /// A VarInt was malformed, it overflowed 64 bits, or it was non-minimally encoded.
         case invalidVarInt
         /// A frame advertised a payload larger than `maxMessageSize`.
         case messageTooLarge(length: UInt64, max: UInt64)
