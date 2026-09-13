@@ -2,7 +2,7 @@
 //
 // This source file is part of the swift-libp2p open source project
 //
-// Copyright (c) 2022-2025 swift-libp2p project authors
+// Copyright (c) 2022-2026 swift-libp2p project authors
 // Licensed under MIT
 //
 // See LICENSE for license information
@@ -204,6 +204,43 @@ struct LibP2PMPLEXTests {
         #expect(throws: MPLEXFrameDecoder.Errors.invalidMPLEXFlag) {
             try channel.writeInbound(invalid)
         }
+
+        _ = try? channel.finish()
+    }
+
+    /// A non-minimally encoded length prefix must be rejected. The shared `ByteBuffer.readVarInt`
+    /// helpers default to `requireMinimal: true`, matching the multiformats VarInt spec.
+    @Test func testNonMinimalVarIntThrows() throws {
+        let channel = EmbeddedChannel(handler: ByteToMessageHandler(MPLEXFrameDecoder()))
+        // header: streamID 1, flag MessageInitiator (2) -> varint [0x0a]
+        // length: 0 encoded over two bytes              -> [0x80, 0x00], a non-minimal zero
+        let nonMinimal = channel.allocator.buffer(bytes: [0x0a, 0x80, 0x00])
+
+        #expect(throws: MPLEXFrameDecoder.Errors.invalidVarInt) {
+            try channel.writeInbound(nonMinimal)
+        }
+
+        _ = try? channel.finish()
+    }
+
+    /// A frame delivered across two reads, split part way through its multi-byte length prefix,
+    /// must decode once the remaining bytes arrive.
+    @Test func testFrameSplitMidLengthPrefixDecodes() throws {
+        let channel = EmbeddedChannel(handler: ByteToMessageHandler(MPLEXFrameDecoder()))
+
+        let payload = [UInt8](repeating: 0x5a, count: 200)
+        // header: streamID 1, flag MessageInitiator (2) -> varint [0x0a]
+        // length: 200                                   -> varint [0xc8, 0x01]
+        let head = channel.allocator.buffer(bytes: [0x0a, 0xc8])
+        let tail = channel.allocator.buffer(bytes: [0x01] + payload)
+
+        try channel.writeInbound(head)
+        #expect(try channel.readInbound(as: MPLEXFrame.self) == nil)
+
+        try channel.writeInbound(tail)
+        let decoded = try #require(try channel.readInbound(as: MPLEXFrame.self))
+        #expect(decoded.streamID.id == 1)
+        #expect(decoded.payload == .inboundData(ByteBuffer(bytes: payload)))
 
         _ = try? channel.finish()
     }
