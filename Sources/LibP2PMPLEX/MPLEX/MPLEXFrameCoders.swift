@@ -13,15 +13,16 @@
 //===----------------------------------------------------------------------===//
 
 import LibP2P
-import VarInt
 
+/// Encodes a `MPLEXFrame` onto the wire as `uVarInt(header) || uVarInt(length) || payload`, where
+/// `header = streamID << 3 | flag`.
 internal class MPLEXFrameEncoder: MessageToByteEncoder {
     public typealias OutboundIn = MPLEXFrame
 
     public init() {}
 
     public func encode(data: MPLEXFrame, out: inout ByteBuffer) throws {
-        let header = putUVarInt(data.streamID.id << 3 | data.flag.rawValue)
+        let header = data.streamID.id << 3 | data.flag.rawValue
         var payload = data.messageBytes()
 
         // The mplex spec caps a single frame's payload at 1 MiB. Split larger payloads across
@@ -34,9 +35,8 @@ internal class MPLEXFrameEncoder: MessageToByteEncoder {
         repeat {
             // `min` keeps the length within bounds, so this force-unwrap is safe.
             let chunk = payload.readSlice(length: min(payload.readableBytes, maxChunk))!
-            let length = putUVarInt(UInt64(chunk.readableBytes))
-            out.writeBytes(header + length)
-            out.writeBytes(chunk.readableBytesView)
+            out.writeVarInt(header)
+            out.writeVarIntLengthPrefixed(chunk)
         } while payload.readableBytes > 0
     }
 }
