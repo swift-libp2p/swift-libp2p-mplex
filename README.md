@@ -77,4 +77,4 @@ This repo is just a gnarly fork of the beautiful http2 code by the swift nio tea
 
 ## License
 
-[MIT](LICENSE) © 2022 Breth Inc.
+[MIT](LICENSE) © 2026 Breth Inc.
