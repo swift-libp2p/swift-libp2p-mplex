@@ -27,6 +27,7 @@
 //===----------------------------------------------------------------------===//
 
 import LibP2P
+import NIOConcurrencyHelpers
 
 /// The various channel options specific to `MPLEXStreamChannel`s.
 ///
@@ -251,8 +252,8 @@ final class MPLEXStreamChannel: Channel, ChannelCore, @unchecked Sendable {
         self.eventLoop = parent.eventLoop
         self.streamID = streamID
         self.multiplexer = multiplexer
-        self._isActiveAtomic = .makeAtomic(value: false)
-        self._isWritable = .makeAtomic(value: true)
+        self._isActiveAtomic = .init(false)
+        self._isWritable = .init(true)
         self.state = .idle
         self.streamDataType = streamDataType
 
@@ -501,20 +502,20 @@ final class MPLEXStreamChannel: Channel, ChannelCore, @unchecked Sendable {
     }
 
     public var isWritable: Bool {
-        self._isWritable.load()
+        self._isWritable.withLockedValue { $0 }
     }
 
-    private let _isWritable: NIOAtomic<Bool>
+    private let _isWritable: NIOLockedValueBox<Bool>
 
     private var _isActive: Bool {
         self.state == .active || self.state == .closing || self.state == .localActive
     }
 
     public var isActive: Bool {
-        self._isActiveAtomic.load()
+        self._isActiveAtomic.withLockedValue { $0 }
     }
 
-    private let _isActiveAtomic: NIOAtomic<Bool>
+    private let _isActiveAtomic: NIOLockedValueBox<Bool>
 
     public var _channelCore: ChannelCore {
         self
@@ -810,7 +811,7 @@ final class MPLEXStreamChannel: Channel, ChannelCore, @unchecked Sendable {
     }
 
     private func changeWritability(to newWritability: Bool) {
-        self._isWritable.store(newWritability)
+        self._isWritable.withLockedValue { $0 = newWritability }
         self.pipeline.fireChannelWritabilityChanged()
     }
 
@@ -1043,12 +1044,12 @@ extension MPLEXStreamChannel {
 }
 
 extension MPLEXStreamChannel {
-    // A helper function used to ensure that state modification leads to changes in the channel active atomic.
+    // A helper function used to ensure that state modification leads to changes in the channel active flag.
     private func modifyingState<ReturnType>(
         _ closure: (inout StreamChannelState) throws -> ReturnType
     ) rethrows -> ReturnType {
         defer {
-            self._isActiveAtomic.store(self._isActive)
+            self._isActiveAtomic.withLockedValue { $0 = self._isActive }
         }
         return try closure(&self.state)
     }
