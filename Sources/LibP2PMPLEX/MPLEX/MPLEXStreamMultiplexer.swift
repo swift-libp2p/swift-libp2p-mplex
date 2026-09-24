@@ -74,7 +74,12 @@ public struct MPLEXStreamID: Hashable, Sendable {
 /// number of in-memory `MPLEXStreamChannel` objects, one for each stream. These operate
 /// on `MPLEXFrame` objects as their base communication atom, as opposed to the regular
 /// NIO `SelectableChannel` objects which use `ByteBuffer` and `IOData`.
-public final class MPLEXStreamMultiplexer: ChannelInboundHandler, ChannelOutboundHandler, MessageExtractableHandler {
+/// - Note: `@unchecked Sendable` (required by `Muxer` as of LibP2PCore 0.6.0), all mutable state,
+///   including the `onStream` / `onStreamEnd` callbacks the `Connection` assigns during the
+///   upgrade, is confined to the channel's event loop.
+public final class MPLEXStreamMultiplexer: ChannelInboundHandler, ChannelOutboundHandler, MessageExtractableHandler,
+    @unchecked Sendable
+{
     public static let protocolCodec: String = "/mplex/6.7.0"
 
     public typealias InboundIn = MPLEXFrame
