@@ -1,4 +1,4 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.1
 //===----------------------------------------------------------------------===//
 //
 // This source file is part of the swift-libp2p open source project
@@ -18,8 +18,8 @@ import PackageDescription
 let package = Package(
     name: "swift-libp2p-mplex",
     platforms: [
-        .macOS(.v10_15),
-        .iOS(.v13),
+        .macOS(.v13),
+        .iOS(.v16),
     ],
     products: [
         // Products define the executables and libraries a package produces, and make them visible to other packages.
@@ -32,7 +32,7 @@ let package = Package(
         // Dependencies declare other packages that this package depends on.
 
         // LibP2P
-        .package(url: "https://github.com/swift-libp2p/swift-libp2p.git", .upToNextMinor(from: "0.3.14")),
+        .package(url: "https://github.com/swift-libp2p/swift-libp2p.git", .upToNextMinor(from: "0.4.0")),
 
         // NIO Test Utils
         .package(url: "https://github.com/apple/swift-nio.git", .upToNextMajor(from: "2.87.0")),
